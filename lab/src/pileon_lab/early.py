@@ -20,7 +20,6 @@ import sys
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 from pileon_lab.enrich import LIKER_PAGES, arrivals, incident_posts, usable
 from pileon_lab.features import composition, first_arrivals
@@ -33,7 +32,7 @@ from pileon_lab.sources import (
     relationships,
 )
 from pileon_lab.study import Incident, load_incidents
-from pileon_lab.sweep import auc
+from pileon_lab.sweep import auc, surge_class
 
 CUTS = (timedelta(minutes=15), timedelta(hours=1), timedelta(hours=6))
 
@@ -77,15 +76,6 @@ def early_signals(
         signals["follow_target"] = comp.follow_target
         signals["follow_amplifier"] = comp.follow_amplifier
     return signals
-
-
-def classify(row: dict[str, Any], *, hostile_at: float, support_at: float) -> str:
-    labeled = int(row["labeled"])
-    hostile = int(row["contempt"]) / labeled >= hostile_at
-    support = int(row["supportive"]) / labeled >= support_at
-    if hostile:
-        return "crossfire" if support else "pileon"
-    return "rally" if support else "spotlight"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -163,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     lines = []
     for outcome in ("pileon", "rally"):
         positives = sum(
-            classify(rows[i], hostile_at=args.hostile_at, support_at=args.support_at)
+            surge_class(rows[i], hostile_at=args.hostile_at, support_at=args.support_at)
             == outcome
             for i, _ in signals
         )
@@ -183,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
                     if value is None:
                         continue
                     values.append(value)
-                    final = classify(
+                    final = surge_class(
                         rows[incident_id],
                         hostile_at=args.hostile_at,
                         support_at=args.support_at,

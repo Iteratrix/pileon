@@ -97,7 +97,10 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   `sweep.py` (de-identified sweep data, AUC ranking, page build),
   `web/sweeps.template.html` (the interactive sweep page), `codebook.py`
   (valence codebook v2), `agreement.py` (kappa), `judges.py` (LLM gold-judge
-  calibration). Cache and outputs in `data/lab/`. Pipeline: `enrich` (warm the
+  calibration), `surges.py` / `label.py` / `network.py` / `evalset.py`
+  (network surges: sample, label, features, judge packets), `baselines.py`
+  (off-the-shelf toxicity models), `early.py` (early warning), `nuke.py`
+  (blocklists and gates scored by counterfactual replay). Cache and outputs in `data/lab/`. Pipeline: `enrich` (warm the
   cache from a study database) -> `features` -> `sweep` (with `--template`
   and `--page` to build the page, `--corpus-note` to describe the data).
   Checks: `cd lab && uv run pytest && uv run ruff check . && uv run mypy src`.
@@ -287,3 +290,14 @@ an abuse gate that ignores who a reply is aimed at would block defenders and
 bystanders about as often as attackers outside pile-ons. Off-the-shelf
 toxicity/sentiment models rank hostility decently but trail the
 context-aware labeler at usable thresholds (`pileon_lab.baselines`).
+
+Nuclear block (`pileon_lab.nuke`, study incidents): blocking who liked the
+dunk barely matters (about 10% of attackers ever liked it; <1% of later harm
+stopped). Blocking the amplifier's audience stops about a quarter of later
+pile-on harm but silences about as large a share of supporters. A
+followers-only reply gate stops ~94% of later pile-on harm and silences ~86%
+of supporters (72% on a rally). Blocking an attacker at their first hostile
+reply stops ~1%: harm is one-shot per author. Every structural rule sits near
+the diagonal (harm stopped ~= supporters silenced), so prevention without
+collateral has to filter exposure by text label and direction, with the gate
+as the blunt emergency option.
