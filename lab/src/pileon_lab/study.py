@@ -1,10 +1,11 @@
-"""Incidents from the qp-pileon study database (read-only).
+"""Incidents from a quote-post study database in the qp-pileon schema.
 
-One qp-pileon cluster is one incident: an amplifier (the amplifier) quoting or
-screenshotting a target's post, anchored at the first such event, with every
-reply and quote that reached the target's post in the following 48 h. Only the
-on-target channels count as responses (replies/quotes to the target's own
-post); replies under the amplifier's post are a different population.
+One cluster is one incident: an amplifier quoting or screenshotting a target's
+post, anchored at the first such event, with every reply and quote that
+reached the target's post in the following 48 h. Only the on-target channels
+count as responses (replies/quotes to the target's own post); replies under
+the amplifier's post are a different population. Study databases are private
+and not part of this repository.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-AMPLIFIER_DID = "did:plc:redacted"
 NON_PERSON = ("news_media", "government", "organization", "aggregator", "self")
 ON_TARGET = ("qp", "qp_deleted", "screenshot_source")
 VALENCE_MODEL = "qwen3.5:27b-mlx+v2"
@@ -62,6 +62,11 @@ def _ts(text: str) -> datetime:
     return datetime.fromisoformat(text)
 
 
+def repo_of(uri: str) -> str:
+    """Return the repository (account) DID of an AT URI."""
+    return uri.removeprefix("at://").split("/", 1)[0]
+
+
 def load_incidents(db: Path, *, persons_only: bool = True) -> list[Incident]:
     """Load every study cluster as an [`Incident`], oldest first."""
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -71,6 +76,19 @@ def load_incidents(db: Path, *, persons_only: bool = True) -> list[Incident]:
             for did, kind, followers in conn.execute(
                 "SELECT did, target_type, followers_count FROM profiles"
             )
+        }
+        clusters = [
+            (cluster_id, target, anchor, events, source)
+            for cluster_id, target, anchor, events, source in conn.execute(
+                "SELECT cluster_id, target_did, anchor_time, events_json, source "
+                "FROM clusters ORDER BY anchor_time"
+            )
+        ]
+        amplifier_of = {
+            cluster_id: repo_of(
+                min(json.loads(events), key=lambda e: e["created_at"])["uri"]
+            )
+            for cluster_id, _, _, events, _ in clusters
         }
         responses: dict[str, list[Response]] = {}
         query = (
@@ -83,16 +101,13 @@ def load_incidents(db: Path, *, persons_only: bool = True) -> list[Incident]:
         )
         rows = conn.execute(query, (VALENCE_MODEL, DIRECTION_MODEL, *ON_TARGET))
         for cluster_id, uri, author, target, at, channel, valence, direction in rows:
-            if author in (AMPLIFIER_DID, target):
+            if author in (amplifier_of.get(cluster_id), target):
                 continue
             responses.setdefault(cluster_id, []).append(
                 Response(uri, author, _ts(at), channel, valence, direction)
             )
         incidents = []
-        for cluster_id, target, anchor, events_json, source in conn.execute(
-            "SELECT cluster_id, target_did, anchor_time, events_json, source "
-            "FROM clusters ORDER BY anchor_time"
-        ):
+        for cluster_id, target, anchor, events_json, source in clusters:
             kind, followers = profiles.get(target, ("", None))
             if persons_only and kind in NON_PERSON:
                 continue
@@ -105,7 +120,7 @@ def load_incidents(db: Path, *, persons_only: bool = True) -> list[Incident]:
                     target_type=kind,
                     target_followers=followers,
                     anchor=_ts(anchor),
-                    amplifier_did=AMPLIFIER_DID,
+                    amplifier_did=amplifier_of[cluster_id],
                     target_post_uri=events[0]["quoted_uri"],
                     dunk_uris=tuple(e["uri"] for e in events),
                     responses=tuple(

@@ -8,7 +8,7 @@ from pileon_lab.tid import TidError, decode_us, encode_us, for_time, rkey_of, ti
 
 
 def test_decodes_a_real_follow_rkey():
-    # the amplifier's follow of a 2023-era account, from getRelationships.
+    # A real follow record's rkey from 2023, as returned by getRelationships.
     assert time_of("3jvdycipe3q2p").year == 2023
 
 

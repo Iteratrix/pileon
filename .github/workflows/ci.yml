@@ -52,19 +52,6 @@ jobs:
       - run: node --check replay.mjs
         working-directory: replay
 
-  study:
-    name: qp-pileon study
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: studies/qp-pileon
-    steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
-      - run: uv run pytest -q -p no:cacheprovider
-      - run: uv run ruff check .
-      - run: uv run mypy src
-
   lab:
     name: pileon-lab
     runs-on: ubuntu-latest

@@ -10,6 +10,7 @@ the dimension does not separate pile-ons from other incidents at all.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import math
 import sys
@@ -147,6 +148,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-labeled", type=int, default=10, help="for classes")
     parser.add_argument("--template", type=Path, help="page template to fill")
     parser.add_argument("--page", type=Path, help="where to write the filled page")
+    parser.add_argument(
+        "--corpus-note",
+        default="Incidents come from a private quote-post study database.",
+        help="one or two sentences describing where the incidents come from",
+    )
     args = parser.parse_args(argv)
 
     rows = [json.loads(line) for line in args.features.read_text().splitlines()]
@@ -181,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
     args.out.write_text(data)
     print(f"wrote {args.out} ({args.out.stat().st_size / 1e3:.0f} kB)", file=sys.stderr)
     if args.template and args.page:
-        page = fill_template(args.template.read_text(), data)
+        page = fill_template(args.template.read_text(), data, note=args.corpus_note)
         args.page.parent.mkdir(parents=True, exist_ok=True)
         args.page.write_text(page)
         print(f"wrote {args.page}", file=sys.stderr)
@@ -189,15 +195,20 @@ def main(argv: list[str] | None = None) -> int:
 
 
 PLACEHOLDER = "__SWEEP_DATA__"
+NOTE_PLACEHOLDER = "__CORPUS_NOTE__"
 
 
-def fill_template(template: str, data: str) -> str:
-    """Embed JSON in the page's data script; `</` is escaped so no value can
-    close the script element."""
+def fill_template(template: str, data: str, *, note: str = "") -> str:
+    """Embed JSON in the page's data script and the corpus note in its footer.
+
+    `</` in the data is escaped so no value can close the script element; the
+    note is HTML-escaped.
+    """
     if template.count(PLACEHOLDER) != 1:
         msg = f"template must contain {PLACEHOLDER} exactly once"
         raise ValueError(msg)
-    return template.replace(PLACEHOLDER, data.replace("</", "<\\/"))
+    page = template.replace(PLACEHOLDER, data.replace("</", "<\\/"))
+    return page.replace(NOTE_PLACEHOLDER, html.escape(note))
 
 
 if __name__ == "__main__":

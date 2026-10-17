@@ -75,3 +75,5 @@ def test_fill_template_escapes_script_close():
     assert "<\\/script><b>" in page
     with pytest.raises(ValueError, match="exactly once"):
         fill_template("no placeholder", "{}")
+    noted = fill_template("<p>__CORPUS_NOTE__</p>__SWEEP_DATA__", "{}", note="A & <b>")
+    assert noted.startswith("<p>A &amp; &lt;b&gt;</p>")

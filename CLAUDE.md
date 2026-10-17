@@ -1,10 +1,15 @@
 # pileon
 
 Research and tools for Bluesky pile-ons: detect them, attribute them, and give
-targets tunable defenses. Monorepo; started 2026-10-16 from a private
-quote-post pile-on study and the `nuclear-block` idea
-(myrrlyn, bsky post `3mwogfnvves2a`: "block this account and accounts tightly
-interlinked with it ... the thermonuclear block").
+targets tunable defenses. Started 2026-10-16 from a private quote-post pile-on
+study and the `nuclear-block` idea (myrrlyn, bsky post `3mwogfnvves2a`: "block
+this account and accounts tightly interlinked with it ... the thermonuclear
+block").
+
+**Private material lives in `private/` (gitignored).** If `private/NOTES.md`
+exists, read it: it covers the private study, its data, results that derive
+from it, and machine details. Nothing from `private/` may be committed, and
+nothing that names the study's amplifier or targets belongs in tracked files.
 
 ## Vocabulary (agreed 2026-10-16)
 
@@ -26,8 +31,7 @@ interlinked with it ... the thermonuclear block").
 - **Amplifier**: the account whose post caused a surge (any valence). The
   amplifier of a pile-on is an **instigator**. **Target**: the account surged
   at.
-- "Hostile" here means codebook v2 hostile-or-abusive and aimed at the target
-  (the study's "contempt").
+- "Hostile" here means codebook v2 hostile-or-abusive and aimed at the target.
 
 ## Roadmap
 
@@ -51,8 +55,7 @@ interlinked with it ... the thermonuclear block").
      records). Also: allow replies but instantly block posts that cross an
      abuse threshold.
 2. Productionize some or all of the above. Rust core (pure, no I/O, `Fetch`
-   trait, like `../bluesky-crawler`); research stays in Python where it reuses
-   the study code.
+   trait, like `../bluesky-crawler`); research stays in Python (`lab/`).
 
 Every dial (detection sensitivity, label confidence, block yield, abuse
 threshold) ships with its measured tradeoff curve, never a bare magic number.
@@ -74,12 +77,13 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   AppView/PDS reads), `study.py` (qp-pileon clusters as incidents),
   `enrich.py` (warms the cache), `features.py` (relative features),
   `sweep.py` (de-identified sweep data, AUC ranking, page build),
-  `web/sweeps.template.html` (the interactive sweep page). Cache and outputs
-  in `data/lab/`. Commands:
-  `uv run python -m pileon_lab.enrich --study-db ../studies/qp-pileon/data/crawl.db --cache ../data/lab/cache.db`,
-  then `pileon_lab.features ... --out ../data/lab/features.jsonl`, then
-  `pileon_lab.sweep --features ... --out ... --template web/sweeps.template.html --page ...`.
-- The private study lives outside the repository.
+  `web/sweeps.template.html` (the interactive sweep page), `codebook.py`
+  (valence codebook v2), `agreement.py` (kappa), `judges.py` (LLM gold-judge
+  calibration). Cache and outputs in `data/lab/`. Pipeline: `enrich` (warm the
+  cache from a study database) -> `features` -> `sweep` (with `--template`
+  and `--page` to build the page, `--corpus-note` to describe the data).
+  Checks: `cd lab && uv run pytest && uv run ruff check . && uv run mypy src`.
+- `private/` - gitignored; see above.
 
 ## Data sources (verified 2026-10-16)
 
@@ -101,7 +105,7 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   Replies whose parent no longer resolves still reveal deleted target posts.
 - **Constellation** (constellation.microcosm.blue): backlink index (who
   replied/quoted/liked/reposted a target, counts, distinct DIDs); API marked
-  unstable; drops deleted records. Client in `studies/qp-pileon/src/qp_pileon/constellation.py`.
+  unstable; drops deleted records.
 - **Public AppView** (public.api.bsky.app): threads, likes with timestamps,
   quotes, profiles, relationships; ~3000 req / 5 min / IP.
 - Static datasets (Zenodo Bluesky Social Dataset through early 2024; HF
@@ -178,8 +182,8 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   flipped without it, per the study).
 - Gold checks for valence are done by two LLM judges, an Opus-model agent and
   a Fable agent, not by the owner (decided 2026-10-16). Each judge must first
-  match the 184 existing human gold labels in qp-pileon at least as well as
-  the local labeler did (weighted kappa ~0.40); agreement between the judges is
+  match the 184 existing human gold labels from the private study at least as
+  well as the local labeler did (weighted kappa ~0.40); agreement between the judges is
   extra evidence on top, never a substitute (model-model agreement is
   consistency, not validity). Calibrated 2026-10-16 (`pileon_lab.judges`,
   blind packet in `data/lab/judges/`, 123 persons-only items, mapping B):
@@ -187,3 +191,11 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   Opus vs Fable 0.920 (5-point, 88% exact). Both pass. Network-wide gold =
   both judges on every item; their disagreements are flagged, not resolved by
   either judge.
+
+## Findings
+
+Results so far come from the private study and are kept in
+`private/NOTES.md`. In general terms: relative volume (arrivals against the
+target's own baseline) says a surge is happening; approval signals (likes on
+the target post vs on the amplifier's post and the replies, repliers not
+liking what they reply to) separate pile-ons from rallies without any text.

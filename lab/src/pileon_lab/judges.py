@@ -1,11 +1,11 @@
-"""Calibrate LLM gold judges against the study's human gold labels.
+"""Calibrate LLM gold judges against human gold labels.
 
 Before an LLM judge's labels count as gold for new items, it has to match the
-184 human gold labels from qp-pileon at least as well as the bulk labeler did.
-`export` writes a blind packet (opaque ids, shuffled, no labels) plus the
-exact codebook the bulk labeler used; `score` compares each judge's answers
-to the human labels with the study's own kappa code, alongside the bulk
-labeler's v2 labels on the same items.
+human gold labels in a study database (qp-pileon schema) at least as well as
+the bulk labeler did. `export` writes a blind packet (opaque ids, shuffled, no
+labels) plus the exact codebook the bulk labeler used; `score` compares each
+judge's answers to the human labels, alongside the bulk labeler's v2 labels
+on the same items.
 """
 
 from __future__ import annotations
@@ -18,18 +18,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from qp_pileon.calibrate import cohens_kappa, weighted_kappa
-from qp_pileon.targets import NON_PERSON
-from qp_pileon.valence import VALENCE_PROMPT_V2, map_v2_to_gold
+from pileon_lab.agreement import cohens_kappa, weighted_kappa
+from pileon_lab.codebook import V2_LABELS, codebook_text, to_gold
+from pileon_lab.study import NON_PERSON
 
 BULK_GOLD_TAG = "qwen3.5:27b-mlx+v2gold"
-V2_LABELS = ("supportive", "neutral", "critical", "hostile", "abusive")
 SEED = 20261016
-
-
-def codebook() -> str:
-    """The v2 codebook exactly as the bulk labeler saw it, minus the I/O lines."""
-    return VALENCE_PROMPT_V2.split("Reply with ONLY")[0].rstrip() + "\n"
 
 
 def gold_labels(db: Path, extra: Path | None) -> dict[str, str]:
@@ -95,7 +89,7 @@ def export(db: Path, extra: Path | None, outdir: Path) -> int:
                 + "\n"
             )
     (outdir / "key.json").write_text(json.dumps(key, indent=1))
-    (outdir / "codebook.md").write_text(codebook())
+    (outdir / "codebook.md").write_text(codebook_text())
     print(f"exported {len(uris)} items to {outdir}", file=sys.stderr)
     return len(uris)
 
@@ -144,11 +138,11 @@ def score(db: Path, extra: Path | None, outdir: Path, judges: list[Path]) -> Non
     print(
         report(
             "bulk labeler (qwen v2)",
-            [(map_v2_to_gold(bulk[i]), gold[key[i]]) for i in ids],
+            [(to_gold(bulk[i]), gold[key[i]]) for i in ids],
         )
     )
     for name, labels in named.items():
-        print(report(name, [(map_v2_to_gold(labels[i]), gold[key[i]]) for i in ids]))
+        print(report(name, [(to_gold(labels[i]), gold[key[i]]) for i in ids]))
     names = list(named)
     for a in range(len(names)):
         for b in range(a + 1, len(names)):
