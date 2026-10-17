@@ -6,6 +6,29 @@ quote-post pile-on study and the `nuclear-block` idea
 (myrrlyn, bsky post `3mwogfnvves2a`: "block this account and accounts tightly
 interlinked with it ... the thermonuclear block").
 
+## Vocabulary (agreed 2026-10-16)
+
+- **Surge**: a burst of stranger arrivals at a target, relative to the
+  target's own baseline. Valence-agnostic: what a burst detector finds, and
+  what virality looks like before valence.
+- Surges split by the valence of the arrivals (two dials: hostile share and
+  supportive share of labeled replies; defaults 10% and 25%):
+
+  |                     | supportive low | supportive high |
+  |---------------------|----------------|-----------------|
+  | **hostile high**    | **pile-on**    | **crossfire**   |
+  | **hostile low**     | **spotlight**  | **rally**       |
+
+  Pile-on: disproportionately hostile. Rally: disproportionately supportive
+  (people rallying around the target). Crossfire: both in force (attackers and
+  defenders fighting in the target's replies). Spotlight: attention without
+  much stance.
+- **Amplifier**: the account whose post caused a surge (any valence). The
+  amplifier of a pile-on is an **instigator**. **Target**: the account surged
+  at.
+- "Hostile" here means codebook v2 hostile-or-abusive and aimed at the target
+  (the study's "contempt").
+
 ## Roadmap
 
 1. **Pile-on detector**, validated against historical Bluesky data. Built as a
@@ -153,3 +176,9 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   and labels are fine; auto-replies are not.
 - Valence labeling needs the parent/quoted post as context (41% of labels
   flipped without it, per the study).
+- Gold checks for valence are done by two LLM judges, an Opus-model agent and
+  a Fable agent, not by the owner (decided 2026-10-16). Each judge must first
+  match the 184 existing human gold labels in qp-pileon at least as well as
+  the local labeler did (weighted kappa ~0.40); agreement between the judges is
+  extra evidence on top, never a substitute (model-model agreement is
+  consistency, not validity).

@@ -27,6 +27,7 @@ DIRECTION_MODEL = "qwen3.5:27b-mlx+v2+direction"
 
 @dataclass(frozen=True, slots=True)
 class Response:
+    uri: str
     author: str
     at: datetime
     channel: str
@@ -73,18 +74,19 @@ def load_incidents(db: Path, *, persons_only: bool = True) -> list[Incident]:
         }
         responses: dict[str, list[Response]] = {}
         query = (
-            "SELECT t.cluster_id, t.author_did, t.target_did, t.indexed_at, t.channel, "
+            "SELECT t.cluster_id, t.item_uri, t.author_did, t.target_did, "
+            "t.indexed_at, t.channel, "
             "v.label, d.label FROM text_items t "
             "LEFT JOIN valence_labels v ON v.item_uri = t.item_uri AND v.model = ? "
             "LEFT JOIN valence_labels d ON d.item_uri = t.item_uri AND d.model = ? "
             "WHERE t.role = 'response' AND t.treatment IN (?, ?, ?)"
         )
         rows = conn.execute(query, (VALENCE_MODEL, DIRECTION_MODEL, *ON_TARGET))
-        for cluster_id, author, target, at, channel, valence, direction in rows:
+        for cluster_id, uri, author, target, at, channel, valence, direction in rows:
             if author in (AMPLIFIER_DID, target):
                 continue
             responses.setdefault(cluster_id, []).append(
-                Response(author, _ts(at), channel, valence, direction)
+                Response(uri, author, _ts(at), channel, valence, direction)
             )
         incidents = []
         for cluster_id, target, anchor, events_json, source in conn.execute(

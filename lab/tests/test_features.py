@@ -9,8 +9,10 @@ from pileon_lab.features import (
     engagement_mix,
     followed_before,
     lifts,
+    like_reply,
+    like_signals,
 )
-from pileon_lab.sources import UNRESOLVED, PostCounts, Relationship
+from pileon_lab.sources import UNRESOLVED, Likers, PostCounts, Relationship
 from pileon_lab.study import Incident, Response
 from pileon_lab.tid import for_time
 
@@ -50,7 +52,12 @@ def incident(responses):
 
 def reply(author, minutes, valence="neutral", direction=None):
     return Response(
-        author, ANCHOR + timedelta(minutes=minutes), "replies", valence, direction
+        f"at://{author}/app.bsky.feed.post/{minutes}",
+        author,
+        ANCHOR + timedelta(minutes=minutes),
+        "replies",
+        valence,
+        direction,
     )
 
 
@@ -148,6 +155,13 @@ def test_deleted_target_post_still_gets_a_window_lift():
         to_amplifier={},
         amplifier_followers=100_000,
         pre_arrivals=0,
+        likes=like_signals(
+            incident(responses),
+            target_post=None,
+            response_counts={},
+            dunk_counts=[],
+            liked=None,
+        ),
     )
     assert not row.target_post_found
     assert row.reply_lift_median is None
@@ -158,3 +172,55 @@ def test_deleted_target_post_still_gets_a_window_lift():
     assert row.contempt == 30
     assert row.contempt_share == pytest.approx(1.0)
     assert row.follower_ratio_log10 == pytest.approx(2.52, abs=0.01)
+
+    assert row.like_reply_ratio is None
+    assert row.arrivals_liked_target is None
+    assert row.dunk_ratio is None
+
+
+def test_like_reply_falls_when_a_post_is_ratioed():
+    assert like_reply(post(200, likes=15)) < like_reply(post(5, likes=60)) / 20
+
+
+def test_like_signals_measure_approval_on_both_sides():
+    responses = [
+        reply("attacker", 3, "hostile", "author"),
+        reply("defender", 5, "supportive"),
+        reply("bystander", 9, "neutral"),
+    ]
+    inc = incident(responses)
+    target = post(30, likes=10, uri=inc.target_post_uri)
+    counts = {
+        responses[0].uri: post(0, likes=50, uri=responses[0].uri),
+        responses[1].uri: post(0, likes=3, uri=responses[1].uri),
+        responses[2].uri: post(0, likes=0, uri=responses[2].uri),
+    }
+    dunk = post(0, likes=200, uri=inc.dunk_uris[0])
+    liked = Likers(
+        complete=True,
+        liked_at={
+            "defender": (ANCHOR - timedelta(hours=2)).isoformat(),
+            "bystander": (ANCHOR + timedelta(minutes=20)).isoformat(),
+        },
+    )
+    signals = like_signals(
+        inc, target_post=target, response_counts=counts, dunk_counts=[dunk], liked=liked
+    )
+    assert signals.arrivals_liked_target == pytest.approx(2 / 3)
+    assert signals.arrivals_liked_before == pytest.approx(1 / 3)
+    assert signals.top_response_ratio == pytest.approx(51 / 11)
+    assert signals.responses_outliking_target == pytest.approx(1 / 3)
+    assert signals.dunk_ratio == pytest.approx(201 / 11)
+    assert signals.contempt_like_lift == pytest.approx(51 / 2.5)
+    assert signals.like_group_labeled == {"liked": 2, "no_like": 1}
+    assert signals.like_group_contempt == {"liked": 0, "no_like": 1}
+
+    truncated = like_signals(
+        inc,
+        target_post=target,
+        response_counts=counts,
+        dunk_counts=[dunk],
+        liked=Likers(complete=False, liked_at={"defender": ""}),
+    )
+    assert truncated.arrivals_liked_target is None
+    assert truncated.like_group_labeled == {"liked": 0, "no_like": 0}

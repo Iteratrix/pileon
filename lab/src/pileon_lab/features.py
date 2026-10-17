@@ -26,11 +26,20 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pileon_lab.enrich import BASELINE_POSTS, arrivals, incident_posts, usable
+from pileon_lab.enrich import (
+    BASELINE_POSTS,
+    LIKER_PAGES,
+    arrivals,
+    incident_posts,
+    response_posts,
+    usable,
+)
 from pileon_lab.fetch import Cache, Fetcher
 from pileon_lab.sources import (
+    Likers,
     PostCounts,
     Relationship,
+    likers,
     post_counts,
     post_uris_before,
     profile_counts,
@@ -64,6 +73,15 @@ class Baseline:
     max_replies: int
     median_quotes: float
     median_mix: float
+    median_like_reply: float
+
+
+def like_reply(post: PostCounts) -> float:
+    """Return (likes + 1) / (replies + 1): approval per reply.
+
+    A post being ratioed collects replies without likes, so this falls.
+    """
+    return (post.likes + 1) / (post.replies + 1)
 
 
 def engagement_mix(post: PostCounts) -> float:
@@ -95,6 +113,7 @@ def baseline(history: list[PostCounts], *, is_reply: bool | None) -> Baseline | 
         max_replies=replies[-1],
         median_quotes=statistics.median(p.quotes for p in posts),
         median_mix=statistics.median(engagement_mix(p) for p in posts),
+        median_like_reply=statistics.median(like_reply(p) for p in posts),
     )
 
 
@@ -218,9 +237,10 @@ class Lifts:
     reply_lift_p90: float | None
     reply_vs_record: float | None
     mix_shift: float | None
+    like_reply_shift: float | None
 
 
-NO_LIFTS = Lifts(None, None, None, None)
+NO_LIFTS = Lifts(None, None, None, None, None)
 
 
 def lifts(post: PostCounts | None, base: Baseline | None) -> Lifts:
@@ -231,6 +251,100 @@ def lifts(post: PostCounts | None, base: Baseline | None) -> Lifts:
         reply_lift_p90=ratio(post.replies, base.p90_replies),
         reply_vs_record=ratio(post.replies, base.max_replies),
         mix_shift=engagement_mix(post) / base.median_mix,
+        like_reply_shift=like_reply(post) / base.median_like_reply,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class LikeSignals:
+    """Approval around the incident: who liked the target, who out-liked it."""
+
+    arrivals_liked_target: float | None
+    arrivals_liked_before: float | None
+    top_response_ratio: float | None
+    responses_outliking_target: float | None
+    dunk_ratio: float | None
+    contempt_like_lift: float | None
+    like_group_labeled: dict[str, int]
+    like_group_contempt: dict[str, int]
+
+
+def _liked_before(created_at: str | None, moment: datetime) -> bool:
+    if not created_at:
+        return False
+    try:
+        return datetime.fromisoformat(created_at) < moment
+    except ValueError:
+        return False
+
+
+def like_signals(
+    incident: Incident,
+    *,
+    target_post: PostCounts | None,
+    response_counts: dict[str, PostCounts],
+    dunk_counts: list[PostCounts],
+    liked: Likers | None,
+) -> LikeSignals:
+    """Measure approval of the target against approval of the replies.
+
+    Liker shares need the target's complete liker list; with a truncated or
+    missing list they stay `None` rather than undercounting.
+    """
+    first = first_arrivals(incident.responses)
+    complete = liked is not None and liked.complete
+    liked_at = liked.liked_at if liked is not None else {}
+    target_likes = target_post.likes if target_post is not None else None
+    counted = [
+        (r, response_counts[r.uri])
+        for r in incident.responses
+        if r.uri in response_counts
+    ]
+    contempt_likes = [c.likes for r, c in counted if r.valence and r.contempt]
+    other_likes = [c.likes for r, c in counted if r.valence and not r.contempt]
+    groups = {"liked": 0, "no_like": 0}
+    group_contempt = {"liked": 0, "no_like": 0}
+    if complete:
+        for response in incident.responses:
+            if response.valence is None:
+                continue
+            group = "liked" if response.author in liked_at else "no_like"
+            groups[group] += 1
+            group_contempt[group] += response.contempt
+    return LikeSignals(
+        arrivals_liked_target=(
+            share(sum(a in liked_at for a in first), len(first)) if complete else None
+        ),
+        arrivals_liked_before=(
+            share(
+                sum(_liked_before(liked_at.get(a), incident.anchor) for a in first),
+                len(first),
+            )
+            if complete
+            else None
+        ),
+        top_response_ratio=(
+            ratio(max(c.likes for _, c in counted), target_likes)
+            if counted and target_likes is not None
+            else None
+        ),
+        responses_outliking_target=(
+            share(sum(c.likes > target_likes for _, c in counted), len(counted))
+            if target_likes is not None
+            else None
+        ),
+        dunk_ratio=(
+            ratio(max(d.likes for d in dunk_counts), target_likes)
+            if dunk_counts and target_likes is not None
+            else None
+        ),
+        contempt_like_lift=(
+            ratio(statistics.mean(contempt_likes), statistics.mean(other_likes))
+            if contempt_likes and other_likes
+            else None
+        ),
+        like_group_labeled=groups,
+        like_group_contempt=group_contempt,
     )
 
 
@@ -259,6 +373,16 @@ class Row:
     reply_vs_record: float | None
     mix: float | None
     mix_shift: float | None
+    like_reply_ratio: float | None
+    like_reply_shift: float | None
+    arrivals_liked_target: float | None
+    arrivals_liked_before: float | None
+    top_response_ratio: float | None
+    responses_outliking_target: float | None
+    dunk_ratio: float | None
+    contempt_like_lift: float | None
+    like_group_labeled: dict[str, int]
+    like_group_contempt: dict[str, int]
     pre_arrivals_48h: int | None
     window_lift_median: float | None
     burst_ratio: float | None
@@ -293,6 +417,7 @@ def build_row(  # noqa: PLR0913 - one row joins every source
     to_amplifier: dict[str, Relationship],
     amplifier_followers: int | None,
     pre_arrivals: int | None,
+    likes: LikeSignals,
 ) -> Row:
     """Join one incident's facts into a feature row."""
     is_reply = target_post.is_reply if target_post else None
@@ -340,6 +465,16 @@ def build_row(  # noqa: PLR0913 - one row joins every source
         reply_vs_record=lift.reply_vs_record,
         mix=engagement_mix(target_post) if target_post else None,
         mix_shift=lift.mix_shift,
+        like_reply_ratio=like_reply(target_post) if target_post else None,
+        like_reply_shift=lift.like_reply_shift,
+        arrivals_liked_target=likes.arrivals_liked_target,
+        arrivals_liked_before=likes.arrivals_liked_before,
+        top_response_ratio=likes.top_response_ratio,
+        responses_outliking_target=likes.responses_outliking_target,
+        dunk_ratio=likes.dunk_ratio,
+        contempt_like_lift=likes.contempt_like_lift,
+        like_group_labeled=likes.like_group_labeled,
+        like_group_contempt=likes.like_group_contempt,
         pre_arrivals_48h=pre_arrivals,
         window_lift_median=(
             ratio(window, base.median_replies + base.median_quotes) if base else None
@@ -387,6 +522,7 @@ async def assemble(
 ) -> list[Row]:
     """Build every feature row from cached facts."""
     targets = await post_counts(fetcher, incident_posts(incidents))
+    response_counts = await post_counts(fetcher, response_posts(incidents))
     amplifiers = sorted({i.amplifier_did for i in incidents})
     followers = await profile_counts(fetcher, amplifiers)
     allies: dict[str, dict[str, Relationship]] = {}
@@ -416,16 +552,32 @@ async def assemble(
         to_target = await relationships(
             fetcher, incident.target_did, arrivals(incident)
         )
+        target_post = targets.get(incident.target_post_uri)
+        liked: Likers | None = None
+        if target_post is not None:
+            liked = (
+                await likers(fetcher, target_post.uri, max_pages=LIKER_PAGES)
+                if target_post.likes > 0
+                else Likers(complete=True, liked_at={})
+            )
+        signals = like_signals(
+            incident,
+            target_post=target_post,
+            response_counts=response_counts,
+            dunk_counts=[targets[u] for u in incident.dunk_uris if u in targets],
+            liked=liked,
+        )
         rows.append(
             build_row(
                 incident,
-                target_post=targets.get(incident.target_post_uri),
+                target_post=target_post,
                 history=history,
                 ally=allies[incident.amplifier_did].get(incident.target_did),
                 to_target=to_target,
                 to_amplifier=audiences[incident.amplifier_did],
                 amplifier_followers=followers.get(incident.amplifier_did),
                 pre_arrivals=pre.get(incident.incident_id),
+                likes=signals,
             )
         )
     return rows

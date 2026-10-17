@@ -14,13 +14,24 @@ import json
 import math
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 DIMENSIONS: dict[str, str] = {
     "reply_lift_median": "Replies on the target post vs the target's median post",
     "reply_lift_p90": "Replies vs the target's 90th-percentile post",
     "reply_vs_record": "Replies vs the target's previous high (last 200 posts)",
     "mix_shift": "(Replies+quotes)/(likes+reposts) vs the target's median post",
+    "like_reply_ratio": "Likes per reply on the target post",
+    "like_reply_shift": "Likes per reply vs the target's median post",
+    "arrivals_liked_target": "Share of arrivals who like the target post",
+    "arrivals_liked_before": "Share of arrivals who liked it before the quote",
+    "top_response_ratio": "Likes on the top reply or quote vs the target post",
+    "responses_outliking_target": "Share of replies and quotes out-liking the target",
+    "dunk_ratio": "Likes on the quoter's post vs the target post",
+    "contempt_like_lift": "Likes per contempt reply vs per other reply (uses labels)",
     "window_lift_median": "Arrivals in 48 h vs the target's median replies+quotes",
     "burst_ratio": "Arrivals in the 48 h after vs the 48 h before",
     "follower_ratio_log10": "Quoter followers / target followers (log10)",
@@ -45,6 +56,8 @@ OUTCOMES = (
     "labeled",
     "group_labeled",
     "group_contempt",
+    "like_group_labeled",
+    "like_group_contempt",
 )
 CONTEXT = ("source", "target_post_found", "target_post_is_reply", "baseline_posts")
 
@@ -87,25 +100,31 @@ def auc(scores: list[float], labels: list[bool]) -> float | None:
     return (rank_sum - positives * (positives + 1) / 2) / (positives * negatives)
 
 
-def ranking(
-    rows: list[dict[str, Any]],
-    *,
-    outcome: str,
-    threshold: float,
-    min_labeled: int = 0,
-) -> list[tuple[str, float, int]]:
-    """Return (dimension, AUC, n) sorted by separation strength.
+Row = dict[str, Any]
 
-    Rows with fewer than `min_labeled` labeled responses are left out, not
-    counted as negatives: a share outcome says nothing about them.
-    """
-    eligible = [r for r in rows if (r.get("labeled") or 0) >= min_labeled]
+SURGE_CLASSES = ("pileon", "rally", "crossfire", "spotlight")
+
+
+def surge_class(row: Row, *, hostile_at: float, support_at: float) -> str:
+    """Sort a judged incident into a surge class by its reply shares."""
+    labeled = row.get("labeled") or 0
+    hostile = (row.get("contempt") or 0) / labeled >= hostile_at
+    support = (row.get("supportive") or 0) / labeled >= support_at
+    if hostile:
+        return "crossfire" if support else "pileon"
+    return "rally" if support else "spotlight"
+
+
+def ranking(
+    rows: list[Row], *, positive: Callable[[Row], bool]
+) -> list[tuple[str, float, int]]:
+    """Return (dimension, AUC, n) sorted by separation strength."""
     result = []
     for dimension in DIMENSIONS:
         pairs = [
-            (float(r[dimension]), float(r[outcome]) >= threshold)
-            for r in eligible
-            if r.get(dimension) is not None and r.get(outcome) is not None
+            (float(r[dimension]), positive(r))
+            for r in rows
+            if r.get(dimension) is not None
         ]
         score = auc([p[0] for p in pairs], [p[1] for p in pairs])
         if score is not None:
@@ -117,27 +136,41 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write de-identified sweep data")
     parser.add_argument("--features", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--outcome", default="contempt")
-    parser.add_argument("--threshold", type=float, default=3)
-    parser.add_argument("--min-labeled", type=int, default=0)
+    parser.add_argument(
+        "--outcome",
+        default="pileon",
+        help="a surge class (pileon, rally, crossfire, spotlight) or a count field",
+    )
+    parser.add_argument("--threshold", type=float, default=3, help="for counts")
+    parser.add_argument("--hostile-at", type=float, default=0.10)
+    parser.add_argument("--support-at", type=float, default=0.25)
+    parser.add_argument("--min-labeled", type=int, default=10, help="for classes")
     parser.add_argument("--template", type=Path, help="page template to fill")
     parser.add_argument("--page", type=Path, help="where to write the filled page")
     args = parser.parse_args(argv)
 
     rows = [json.loads(line) for line in args.features.read_text().splitlines()]
-    eligible = [r for r in rows if (r.get("labeled") or 0) >= args.min_labeled]
-    positives = sum(1 for r in eligible if (r.get(args.outcome) or 0) >= args.threshold)
+    if args.outcome in SURGE_CLASSES:
+        judged = [r for r in rows if (r.get("labeled") or 0) >= args.min_labeled]
+
+        def positive(row: Row) -> bool:
+            kind = surge_class(
+                row, hostile_at=args.hostile_at, support_at=args.support_at
+            )
+            return bool(kind == args.outcome)
+
+    else:
+        judged = rows
+
+        def positive(row: Row) -> bool:
+            return bool((row.get(args.outcome) or 0) >= args.threshold)
+
     print(
-        f"{len(eligible)} incidents with {args.min_labeled}+ labeled; "
-        f"{positives} with {args.outcome} >= {args.threshold}",
+        f"{len(judged)} incidents judged; "
+        f"{sum(positive(r) for r in judged)} are {args.outcome}",
         file=sys.stderr,
     )
-    for dimension, score, n in ranking(
-        rows,
-        outcome=args.outcome,
-        threshold=args.threshold,
-        min_labeled=args.min_labeled,
-    ):
+    for dimension, score, n in ranking(judged, positive=positive):
         print(f"  AUC {score:.3f}  n={n:>5}  {dimension}", file=sys.stderr)
     payload = {
         "dimensions": DIMENSIONS,

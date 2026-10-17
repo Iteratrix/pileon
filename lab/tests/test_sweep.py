@@ -2,7 +2,14 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from pileon_lab.sweep import auc, deidentify, fill_template, ranking, round_sig
+from pileon_lab.sweep import (
+    auc,
+    deidentify,
+    fill_template,
+    ranking,
+    round_sig,
+    surge_class,
+)
 
 
 def test_auc_perfect_inverse_and_chance():
@@ -48,9 +55,18 @@ def test_ranking_puts_the_separating_dimension_first():
         {"reply_lift_median": float(i), "arrivals": 7, "contempt": int(i >= 5)}
         for i in range(10)
     ]
-    ranked = ranking(rows, outcome="contempt", threshold=1)
+    ranked = ranking(rows, positive=lambda r: r["contempt"] >= 1)
     assert ranked[0][0] == "reply_lift_median"
     assert ranked[0][1] == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ("contempt", "supportive", "expected"),
+    [(3, 1, "pileon"), (0, 5, "rally"), (3, 5, "crossfire"), (0, 1, "spotlight")],
+)
+def test_surge_classes_split_on_both_shares(contempt, supportive, expected):
+    row = {"labeled": 20, "contempt": contempt, "supportive": supportive}
+    assert surge_class(row, hostile_at=0.1, support_at=0.25) == expected
 
 
 def test_fill_template_escapes_script_close():
@@ -59,14 +75,3 @@ def test_fill_template_escapes_script_close():
     assert "<\\/script><b>" in page
     with pytest.raises(ValueError, match="exactly once"):
         fill_template("no placeholder", "{}")
-
-
-def test_ranking_leaves_out_rows_below_the_label_floor():
-    rows = [
-        {"reply_lift_median": float(i), "contempt_share": i / 10, "labeled": 20}
-        for i in range(10)
-    ] + [{"reply_lift_median": 99.0, "contempt_share": 0.0, "labeled": 2}]
-    ranked = ranking(rows, outcome="contempt_share", threshold=0.5, min_labeled=10)
-    top = next(r for r in ranked if r[0] == "reply_lift_median")
-    assert top[2] == 10
-    assert top[1] == pytest.approx(1.0)

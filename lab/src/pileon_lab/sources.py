@@ -173,3 +173,37 @@ async def profile_counts(fetcher: Fetcher, dids: list[str]) -> dict[str, int]:
         for response in replies
         for profile in (response.body or {}).get("profiles", [])
     }
+
+
+@dataclass(frozen=True, slots=True)
+class Likers:
+    """Who liked a post, and when (client-reported `createdAt`).
+
+    `complete` is false when the post had more likes than the page cap allowed,
+    so absence from `liked_at` means nothing.
+    """
+
+    complete: bool
+    liked_at: dict[str, str]
+
+
+async def likers(fetcher: Fetcher, uri: str, *, max_pages: int) -> Likers:
+    """Return the accounts that like `uri`, up to `max_pages` pages of 100."""
+    liked_at: dict[str, str] = {}
+    cursor: str | None = None
+    for _ in range(max_pages):
+        params = [("uri", uri), ("limit", "100")]
+        if cursor:
+            params.append(("cursor", cursor))
+        response = await fetcher.xrpc(APPVIEW, "app.bsky.feed.getLikes", params)
+        if not response.ok or response.body is None:
+            return Likers(complete=False, liked_at=liked_at)
+        page = response.body.get("likes", [])
+        for like in page:
+            did = like.get("actor", {}).get("did")
+            if did:
+                liked_at.setdefault(did, like.get("createdAt", ""))
+        cursor = response.body.get("cursor")
+        if not page or not cursor:
+            return Likers(complete=True, liked_at=liked_at)
+    return Likers(complete=False, liked_at=liked_at)

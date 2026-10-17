@@ -10,6 +10,9 @@ Stages, each idempotent (a rerun is served from the cache):
    target, or does the target follow them?).
 5. Amplifier <-> arrival relationships (did they follow the quoter, and since
    when?).
+6. Like counts on every reply and quote (does the crowd out-like the target?).
+7. Who liked each surviving target post (did repliers like what they replied
+   to?).
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from typing import TYPE_CHECKING
 
 from pileon_lab.fetch import Cache, Fetcher
 from pileon_lab.sources import (
+    likers,
     post_counts,
     post_uris_before,
     profile_counts,
@@ -35,6 +39,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
 BASELINE_POSTS = 200
+LIKER_PAGES = 50
+"""Liker pages per target post; 50 covers 97% of study posts completely."""
 
 
 def usable(incidents: Iterable[Incident]) -> list[Incident]:
@@ -61,6 +67,11 @@ def incident_posts(incidents: Iterable[Incident]) -> list[str]:
         posts.add(incident.target_post_uri)
         posts.update(incident.dunk_uris)
     return sorted(posts)
+
+
+def response_posts(incidents: Iterable[Incident]) -> list[str]:
+    """Every reply and quote URI, in one fixed order (see `incident_posts`)."""
+    return sorted({r.uri for i in incidents for r in i.responses})
 
 
 class Progress:
@@ -146,6 +157,21 @@ async def enrich(
     for amplifier, people in arrivals_by_amplifier.items():
         print(f"[amplifier-arrivals] {len(people)} accounts", file=sys.stderr)
         await relationships(fetcher, amplifier, sorted(people))
+
+    replies_and_quotes = response_posts(incidents)
+    print(f"[responses] {len(replies_and_quotes)} replies and quotes", file=sys.stderr)
+    await post_counts(fetcher, replies_and_quotes)
+
+    counted = await post_counts(fetcher, posts)
+    liked = [i for i in incidents if counted.get(i.target_post_uri, None) is not None]
+    liked = [i for i in liked if counted[i.target_post_uri].likes > 0]
+
+    async def target_likers(incident: Incident) -> None:
+        await likers(fetcher, incident.target_post_uri, max_pages=LIKER_PAGES)
+
+    await _each(
+        liked, target_likers, Progress(fetcher, "likers", len(liked)), concurrency
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

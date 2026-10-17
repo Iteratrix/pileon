@@ -102,25 +102,39 @@ code { font-family: var(--mono); font-size: 0.92em; }
 <main class="page">
   <header>
     <h1>Pile-on Sweeps</h1>
-    <p class="lede">Each incident is a quote post or screenshot of someone's post, plus everyone who replied to or quoted that post in the next 48 hours. Every dimension below is measured relative to the target's own normal. Pick an outcome, then see which dimensions separate the incidents that meet it from the ones that don't.</p>
+    <p class="lede">Each incident is a quote post or screenshot of someone's post (the amplifier's), plus everyone who replied to or quoted that post in the next 48 hours. Surges split by the tone of those arrivals into pile-ons (hostile), rallies (supportive), crossfires (both) and spotlights (neither). Pick one, and see which dimensions, each measured against the target's own normal, separate it from the rest.</p>
     <p class="corpus" id="corpus"></p>
   </header>
 
   <section class="filters" aria-label="Filters for every chart">
     <div class="field">
-      <label for="outcome">Counts as a pile-on</label>
+      <label for="outcome">Outcome to separate</label>
       <select id="outcome">
-        <option value="contempt:1">1+ contempt replies aimed at the target</option>
-        <option value="contempt:3" selected>3+ contempt replies aimed at the target</option>
-        <option value="contempt:5">5+ contempt replies aimed at the target</option>
-        <option value="contempt:10">10+ contempt replies aimed at the target</option>
-        <option value="contempt:20">20+ contempt replies aimed at the target</option>
-        <option value="critical_or_worse:10">10+ critical-or-worse replies</option>
-        <option value="critical_or_worse:20">20+ critical-or-worse replies</option>
-        <option value="share:0.10:10">Contempt is 10%+ of replies (10+ labeled)</option>
-        <option value="share:0.20:10">Contempt is 20%+ of replies (10+ labeled)</option>
-        <option value="share:0.10:30">Contempt is 10%+ of replies (30+ labeled)</option>
+        <optgroup label="Surge classes (by share of labeled replies)">
+          <option value="class:pileon" selected>Pile-on: hostile, little support</option>
+          <option value="class:rally">Rally: supportive, little hostility</option>
+          <option value="class:crossfire">Crossfire: hostile and supportive</option>
+          <option value="class:spotlight">Spotlight: neither</option>
+          <option value="class:hostile">Hostile at all (pile-on or crossfire)</option>
+        </optgroup>
+        <optgroup label="Raw counts (grow with volume)">
+          <option value="contempt:3">3+ hostile replies aimed at the target</option>
+          <option value="contempt:10">10+ hostile replies aimed at the target</option>
+          <option value="critical_or_worse:20">20+ critical-or-worse replies</option>
+        </optgroup>
       </select>
+    </div>
+    <div class="field" data-class-dial>
+      <label for="hostile-at">Hostile at</label>
+      <select id="hostile-at"><option value="0.05">5% of replies</option><option value="0.1" selected>10% of replies</option><option value="0.2">20% of replies</option></select>
+    </div>
+    <div class="field" data-class-dial>
+      <label for="support-at">Supportive at</label>
+      <select id="support-at"><option value="0.15">15% of replies</option><option value="0.25" selected>25% of replies</option><option value="0.4">40% of replies</option></select>
+    </div>
+    <div class="field" data-class-dial>
+      <label for="min-labeled">Judge incidents with</label>
+      <select id="min-labeled"><option value="5">5+ labeled replies</option><option value="10" selected>10+ labeled replies</option><option value="30">30+ labeled replies</option></select>
     </div>
     <div class="field">
       <label for="source">Amplified by</label>
@@ -142,17 +156,17 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
   <section class="tiles" aria-label="Summary">
     <div class="tile"><span class="eyebrow">Incidents in view</span><span class="value" id="t-n">—</span><span class="sub" id="t-n-sub"></span></div>
-    <div class="tile"><span class="eyebrow">Count as pile-ons</span><span class="value" id="t-pos">—</span><span class="sub" id="t-pos-sub"></span></div>
+    <div class="tile"><span class="eyebrow" id="t-pos-label">Meet the outcome</span><span class="value" id="t-pos">—</span><span class="sub" id="t-pos-sub"></span></div>
     <div class="tile"><span class="eyebrow">Strongest single dimension</span><span class="value" id="t-best">—</span><span class="sub" id="t-best-sub"></span></div>
   </section>
 
   <section class="card" id="rank-card">
     <div class="card-head">
-      <h2>Which dimensions separate pile-ons</h2>
+      <h2>Which dimensions separate the outcome</h2>
       <button class="toggle" id="rank-table-btn" type="button" aria-expanded="false">Show table</button>
     </div>
-    <p class="note">The bar is how well one dimension alone tells pile-ons from other incidents (area under the ROC curve). 0.5 means no better than chance. Red bars: pile-ons tend to sit at high values. Blue bars: at low values. Click a row to sweep it below.</p>
-    <div class="legend" aria-hidden="true"><span><i style="background: var(--red)"></i>Higher values go with pile-ons</span><span><i style="background: var(--blue)"></i>Lower values go with pile-ons</span></div>
+    <p class="note">The bar is how well one dimension alone tells the chosen outcome from other incidents (area under the ROC curve). 0.5 means no better than chance. Red bars: the outcome tends to sit at high values. Blue bars: at low values. Click a row to sweep it below.</p>
+    <div class="legend" aria-hidden="true"><span><i style="background: var(--red)"></i>Higher values go with the outcome</span><span><i style="background: var(--blue)"></i>Lower values go with the outcome</span></div>
     <div class="chart" id="rank-chart"></div>
     <div class="table-wrap" id="rank-table" hidden></div>
   </section>
@@ -173,8 +187,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div class="readout" aria-live="polite">
       <div><b id="r-cut">—</b><span>dial setting</span></div>
       <div><b id="r-flag">—</b><span>incidents flagged</span></div>
-      <div><b id="r-prec">—</b><span>of flagged are pile-ons</span></div>
-      <div><b id="r-rec">—</b><span>of pile-ons flagged</span></div>
+      <div><b id="r-prec">—</b><span>of flagged are <span class="oc">pile-ons</span></span></div>
+      <div><b id="r-rec">—</b><span>of <span class="oc">pile-ons</span> flagged</span></div>
     </div>
     <div class="split">
       <div class="chart" id="bins-chart" aria-label="Pile-on rate by bin"></div>
@@ -188,7 +202,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <h2>Two dimensions together</h2>
       <button class="toggle" id="two-table-btn" type="button" aria-expanded="false">Show table</button>
     </div>
-    <p class="note">Share of incidents in each cell that count as pile-ons. Rows and columns are quartiles of each dimension within the current view. Cells with fewer than 8 incidents are left gray.</p>
+    <p class="note">Share of incidents in each cell that are <span class="oc">pile-ons</span>. Rows and columns are quartiles of each dimension within the current view. Cells with fewer than 8 incidents are left gray.</p>
     <div class="controls">
       <div class="field"><label for="dimx">Across</label><select id="dimx"></select></div>
       <div class="field"><label for="dimy">Down</label><select id="dimy"></select></div>
@@ -202,8 +216,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <h2>Who is hostile when they arrive</h2>
       <button class="toggle" id="who-table-btn" type="button" aria-expanded="false">Show table</button>
     </div>
-    <p class="note">Share of labeled replies and quotes that are contempt aimed at the target, pooled across incidents and split by who sent them. "Quoter's audience" followed the quoter before the incident; "target's people" followed the target or are followed by them.</p>
-    <div class="legend" aria-hidden="true"><span><i style="background: var(--red)"></i>In pile-on incidents</span><span><i style="background: var(--blue)"></i>In other incidents</span></div>
+    <p class="note">Share of labeled replies and quotes that are contempt aimed at the target, pooled across incidents and split by who sent them. "Quoter's audience" followed the quoter before the incident; "target's people" followed the target or are followed by them. The last two rows split senders by whether they also like the target post (only where its full liker list was available).</p>
+    <div class="legend" aria-hidden="true"><span><i style="background: var(--red)"></i>In <span class="oc">pile-ons</span></span><span><i style="background: var(--blue)"></i>In other incidents</span></div>
     <div class="chart" id="who-chart"></div>
     <div class="table-wrap" id="who-table" hidden></div>
   </section>
@@ -225,6 +239,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
   const NS = "http://www.w3.org/2000/svg";
   const KIND = {
     reply_lift_median: "ratio", reply_lift_p90: "ratio", reply_vs_record: "ratio", mix_shift: "ratio",
+    like_reply_ratio: "ratio", like_reply_shift: "ratio", arrivals_liked_target: "share", arrivals_liked_before: "share",
+    top_response_ratio: "ratio", responses_outliking_target: "share", dunk_ratio: "ratio", contempt_like_lift: "ratio",
     window_lift_median: "ratio", burst_ratio: "ratio", follower_ratio_log10: "log10", target_followers: "count",
     follow_amplifier: "share", follow_amplifier_after: "share", follow_target: "share", target_follows: "share",
     strangers_to_both: "share", within_15m: "share", within_1h: "share",
@@ -233,6 +249,10 @@ code { font-family: var(--mono); font-size: 0.92em; }
   const SHORT = {
     reply_lift_median: "Replies vs median post", reply_lift_p90: "Replies vs 90th-pct post",
     reply_vs_record: "Replies vs previous high", mix_shift: "Reply/like mix vs normal",
+    like_reply_ratio: "Likes per reply", like_reply_shift: "Likes per reply vs normal",
+    arrivals_liked_target: "Arrivals who like the post", arrivals_liked_before: "Arrivals who liked it first",
+    top_response_ratio: "Top reply vs post likes", responses_outliking_target: "Replies out-liking the post",
+    dunk_ratio: "Dunk vs post likes", contempt_like_lift: "Likes on contempt vs others",
     window_lift_median: "48 h arrivals vs median", burst_ratio: "48 h after vs before",
     follower_ratio_log10: "Quoter / target followers", target_followers: "Target followers",
     follow_amplifier: "Arrivals from quoter's audience", follow_amplifier_after: "Arrivals who followed quoter after",
@@ -242,7 +262,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
     target_follows_amplifier: "Target followed quoter", arrivals: "Arrivals (absolute)",
   };
   const DIMS = Object.keys(KIND).filter((k) => k in DATA.dimensions);
-  const state = { outcome: "contempt:3", source: "all", post: "all", dim: null, cut: 80, flip: false, dimx: null, dimy: null };
+  const state = { outcome: "class:pileon", hostileAt: 0.1, supportAt: 0.25, minLabeled: 10, source: "all", post: "all", dim: null, cut: 80, flip: false, dimx: null, dimy: null };
+  const CLASS_NAMES = { pileon: "pile-ons", rally: "rallies", crossfire: "crossfires", spotlight: "spotlights", hostile: "hostile surges" };
   const $ = (id) => document.getElementById(id);
   const tip = $("tip");
 
@@ -258,8 +279,9 @@ code { font-family: var(--mono); font-size: 0.92em; }
     const step = [0.02, 0.05, 0.1, 0.2, 0.25].find((st) => v / st <= 5) || 0.25;
     return { step, max: Math.max(step, Math.ceil(v / step - 1e-9) * step) };
   };
-  // The absolute arrival count is a benchmark, never the default subject.
-  const BENCHMARKS = new Set(["arrivals"]);
+  // Benchmarks: the absolute arrival count, and a measure built from the
+  // outcome's own labels. Rankable, never the default subject.
+  const BENCHMARKS = new Set(["arrivals", "contempt_like_lift"]);
   const pct = (v) => (v == null || Number.isNaN(v) ? "—" : (v < 0.1 && v > 0 ? (v * 100).toFixed(1) : Math.round(v * 100)) + "%");
   const fmt = (dim, v) => {
     if (v == null || Number.isNaN(v)) return "—";
@@ -278,18 +300,25 @@ code { font-family: var(--mono); font-size: 0.92em; }
     return typeof v === "boolean" ? (v ? 1 : 0) : v;
   };
 
-  // "field:k" counts replies (volume-dependent); "share:x:min" is the share of
-  // labeled replies that are contempt, judged only where min+ are labeled.
+  // "class:name" sorts incidents into the surge classes by the shares of
+  // labeled replies that are hostile and supportive, judged only where enough
+  // replies are labeled. "field:k" counts replies, which grows with volume.
   function outcome() {
     const parts = state.outcome.split(":");
-    return parts[0] === "share"
-      ? { kind: "share", x: Number(parts[1]), min: Number(parts[2]) }
+    return parts[0] === "class"
+      ? { kind: "class", name: parts[1], min: state.minLabeled }
       : { kind: "count", field: parts[0], k: Number(parts[1]) };
   }
+  function surgeClass(row) {
+    const hostile = (row.contempt ?? 0) / row.labeled >= state.hostileAt;
+    const support = (row.supportive ?? 0) / row.labeled >= state.supportAt;
+    return hostile ? (support ? "crossfire" : "pileon") : support ? "rally" : "spotlight";
+  }
+  const outcomeName = () => (outcome().kind === "class" ? CLASS_NAMES[outcome().name] : "incidents over the count");
   function slice() {
     const o = outcome();
     return ALL.filter((r) => {
-      if (o.kind === "share" && (r.labeled ?? 0) < o.min) return false;
+      if (o.kind === "class" && (r.labeled ?? 0) < o.min) return false;
       if (state.source !== "all" && r.source !== state.source) return false;
       if (state.post === "up" && !r.target_post_found) return false;
       if (state.post === "gone" && r.target_post_found) return false;
@@ -298,7 +327,9 @@ code { font-family: var(--mono); font-size: 0.92em; }
   }
   function positive(row) {
     const o = outcome();
-    return o.kind === "share" ? (row.contempt_share ?? 0) >= o.x : (row[o.field] ?? 0) >= o.k;
+    if (o.kind === "count") return (row[o.field] ?? 0) >= o.k;
+    const c = surgeClass(row);
+    return o.name === "hostile" ? c === "pileon" || c === "crossfire" : c === o.name;
   }
 
   function auc(pairs) {
@@ -427,18 +458,19 @@ code { font-family: var(--mono); font-size: 0.92em; }
     $("t-n").textContent = rows.length.toLocaleString();
     $("t-n-sub").textContent = rows.length === ALL.length
       ? "all incidents"
-      : `of ${ALL.length.toLocaleString()}` + (outcome().kind === "share" ? `; ${outcome().min}+ labeled replies` : "");
+      : `of ${ALL.length.toLocaleString()}` + (outcome().kind === "class" ? `; ${outcome().min}+ labeled replies` : "");
+    $("t-pos-label").textContent = `Are ${outcomeName()}`;
     $("t-pos").textContent = pos.toLocaleString();
     $("t-pos-sub").textContent = `${pct(rows.length ? pos / rows.length : null)} of incidents in view`;
     const best = ranked[0];
     $("t-best").textContent = best ? best.auc.toFixed(2) : "—";
-    $("t-best-sub").textContent = best ? `${SHORT[best.dim]} (AUC)` : "not enough pile-ons in view";
+    $("t-best-sub").textContent = best ? `${SHORT[best.dim]} (AUC)` : `not enough ${outcomeName()} in view`;
   }
 
   function renderRank(rows, ranked) {
     const box = $("rank-chart");
     box.replaceChildren();
-    if (!ranked.length) { box.innerHTML = '<p class="empty">No dimension can be scored: this view has no pile-ons or no other incidents.</p>'; return; }
+    if (!ranked.length) { box.innerHTML = '<p class="empty">No dimension can be scored: this view has none of the chosen outcome, or nothing else.</p>'; return; }
     const width = box.clientWidth || 700;
     const labelW = Math.min(230, width * 0.42);
     const rowH = 26;
@@ -471,7 +503,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
       hoverable(hit, `AUC ${d.auc.toFixed(3)}`, [
         DATA.dimensions[d.dim],
         `${d.n.toLocaleString()} incidents have this measure`,
-        right ? "Higher values go with pile-ons" : "Lower values go with pile-ons",
+        right ? `Higher values go with ${outcomeName()}` : `Lower values go with ${outcomeName()}`,
         "Click to sweep it",
       ], () => { state.dim = d.dim; state.flip = false; render(); $("one-card").scrollIntoView({ behavior: "smooth", block: "start" }); });
     });
@@ -546,7 +578,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
         if (band < 70) lbl.textContent = KIND[dim] === "bool" ? binLabel(dim, b) : fmt(dim, b.lo);
       }
       const hit = el("rect", { x: left + i * band, y: top, width: band, height: height - top - bottom, fill: "transparent" }, svg);
-      hoverable(hit, `${pct(b.rate)} pile-ons`, [`${SHORT[dim]}: ${binLabel(dim, b)}`, `${b.pos} of ${b.n} incidents`]);
+      hoverable(hit, `${pct(b.rate)} ${outcomeName()}`, [`${SHORT[dim]}: ${binLabel(dim, b)}`, `${b.pos} of ${b.n} incidents`]);
     });
     el("line", { x1: left, x2: width - right, y1: ys(base), y2: ys(base), stroke: "var(--ink-2)", "stroke-width": 1, opacity: 0.6 }, svg);
     const labelLeft = bins[0].rate <= bins[bins.length - 1].rate;
@@ -572,8 +604,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
     text(svg2, pl + 4, py(base) - 5, "chance", { "fill": "var(--ink-2)" });
     el("path", { d: pts.map((q, i) => `${i ? "L" : "M"}${px(q.recall)},${py(q.precision)}`).join(""), fill: "none", stroke: "var(--blue)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg2);
     el("circle", { cx: px(cur.recall), cy: py(cur.precision), r: 5, fill: "var(--blue)", stroke: "var(--surface)", "stroke-width": 2 }, svg2);
-    text(svg2, pl, ph - 6, "pile-ons flagged (recall) →", { "font-size": 10.5 });
-    text(svg2, pl + 4, pt - 6, "↑ flagged that are pile-ons (precision)", { "font-size": 10.5 });
+    text(svg2, pl, ph - 6, `${outcomeName()} flagged (recall) →`, { "font-size": 10.5 });
+    text(svg2, pl + 4, pt - 6, `↑ flagged that are ${outcomeName()} (precision)`, { "font-size": 10.5 });
     pts.forEach((q) => {
       const hit = el("circle", { cx: px(q.recall), cy: py(q.precision), r: 9, fill: "transparent" }, svg2);
       hoverable(hit, `${pct(q.precision)} precision`, [`${pct(q.recall)} recall`, `dial ${(lower ? "≤ " : "≥ ") + fmt(dim, q.cut)}`, `${q.flagged} incidents flagged`]);
@@ -636,7 +668,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
           const t2 = text(svg, x + cw / 2, y + chh / 2 + 15, `n=${cell.n}`, { "text-anchor": "middle", fill: color.ink, "font-size": 10, opacity: 0.8 });
           t2.style.pointerEvents = "none";
         }
-        hoverable(rect, enough ? `${pct(rate)} pile-ons` : "Too few incidents", [
+        hoverable(rect, enough ? `${pct(rate)} ${outcomeName()}` : "Too few incidents", [
           `${SHORT[state.dimx]}: ${binLabel(state.dimx, c)}`,
           `${SHORT[state.dimy]}: ${binLabel(state.dimy, b)}`,
           `${cell.pos} of ${cell.n} incidents`,
@@ -652,10 +684,16 @@ code { font-family: var(--mono); font-size: 0.92em; }
   }
 
   function renderWho(rows) {
-    const groups = [["amplifier", "Quoter's audience"], ["target", "Target's people"], ["stranger", "Neither"]];
-    const pool = (subset) => groups.map(([key]) => {
+    const groups = [
+      ["amplifier", "Quoter's audience", "group"], ["target", "Target's people", "group"], ["stranger", "Neither", "group"],
+      ["liked", "Liked the target post", "like_group"], ["no_like", "Didn't like it", "like_group"],
+    ];
+    const pool = (subset) => groups.map(([key, , family]) => {
       let labeled = 0, contempt = 0;
-      subset.forEach((r) => { labeled += (r.group_labeled || {})[key] || 0; contempt += (r.group_contempt || {})[key] || 0; });
+      subset.forEach((r) => {
+        labeled += (r[`${family}_labeled`] || {})[key] || 0;
+        contempt += (r[`${family}_contempt`] || {})[key] || 0;
+      });
       return { labeled, contempt, share: labeled ? contempt / labeled : null };
     });
     const pos = pool(rows.filter(positive)), neg = pool(rows.filter((r) => !positive(r)));
@@ -672,10 +710,11 @@ code { font-family: var(--mono); font-size: 0.92em; }
       el("line", { x1: xs(t), x2: xs(t), y1: top, y2: height - 24, stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg);
       text(svg, xs(t), height - 8, tickPct(t), { "text-anchor": "middle" });
     });
+    el("line", { x1: 0, x2: width, y1: top + 3 * rowH, y2: top + 3 * rowH, stroke: "var(--grid)" }, svg);
     groups.forEach(([, label], i) => {
       const y = top + i * rowH;
       text(svg, left - 10, y + rowH / 2 + 4, label, { "text-anchor": "end", fill: "var(--ink-2)", "font-size": 12 });
-      [[pos[i], "var(--red)", "pile-on incidents", 0], [neg[i], "var(--blue)", "other incidents", 1]].forEach(([g, color, name, k]) => {
+      [[pos[i], "var(--red)", outcomeName(), 0], [neg[i], "var(--blue)", "other incidents", 1]].forEach(([g, color, name, k]) => {
         const h = 14, by = y + 8 + k * (h + 4);
         if (g.share == null) return;
         const w = Math.max(1, xs(g.share) - xs(0));
@@ -690,6 +729,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
   function render() {
     hideTip();
+    document.querySelectorAll(".oc").forEach((node) => { node.textContent = outcomeName(); });
     const rows = slice();
     const ranked = ranking(rows);
     renderTiles(rows, ranked);
@@ -700,10 +740,15 @@ code { font-family: var(--mono); font-size: 0.92em; }
   }
 
   const n = ALL.length;
-  const pileons = ALL.filter((r) => (r.contempt ?? 0) >= 3).length;
-  $("corpus").textContent = `${n.toLocaleString()} incidents with individual targets · ${pileons.toLocaleString()} with 3+ contempt replies · one amplifier (qp-pileon study)`;
+  const judged = ALL.filter((r) => (r.labeled ?? 0) >= 10).length;
+  $("corpus").textContent = `${n.toLocaleString()} incidents with individual targets · ${judged.toLocaleString()} with 10+ labeled replies · one amplifier (qp-pileon study)`;
 
-  $("outcome").addEventListener("change", (e) => { state.outcome = e.target.value; render(); });
+  const syncDials = () => document.querySelectorAll("[data-class-dial]").forEach((d) => { d.hidden = outcome().kind !== "class"; });
+  $("outcome").addEventListener("change", (e) => { state.outcome = e.target.value; syncDials(); render(); });
+  $("hostile-at").addEventListener("change", (e) => { state.hostileAt = Number(e.target.value); render(); });
+  $("support-at").addEventListener("change", (e) => { state.supportAt = Number(e.target.value); render(); });
+  $("min-labeled").addEventListener("change", (e) => { state.minLabeled = Number(e.target.value); render(); });
+  syncDials();
   $("source").addEventListener("change", (e) => { state.source = e.target.value; render(); });
   $("post").addEventListener("change", (e) => { state.post = e.target.value; render(); });
   $("dim").addEventListener("change", (e) => { state.dim = e.target.value; state.flip = false; render(); });
