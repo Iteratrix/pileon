@@ -3,7 +3,8 @@
 `packet` writes a blind packet of labeled network items for the gold judges,
 stratified by the bulk label so hostile items are well represented. `run`
 labels any packet (a network packet, or the study's human-gold packet from
-`pileon_lab.judges`) with a local model and a named prompt variant. `bulk`
+`pileon_lab.judges`) with a local model and a named prompt variant; `direct`
+adds the bulk labeler's direction pass to such a run. `bulk`
 writes the bulk labeler's stored labels for a packet's items. `score`
 compares every labeler in a packet directory with the judges' consensus
 (items both judges labeled the same) on a fixed dev/test split: variants
@@ -29,6 +30,8 @@ from pileon_lab.codebook import (
     V2_LABELS,
     VARIANTS,
     codebook_text,
+    direction_prompt,
+    parse_direction,
     parse_label,
 )
 from pileon_lab.decision import SystemOne, gate
@@ -152,6 +155,46 @@ def write_gated(source: Path, out: Path) -> None:
             sink.write(json.dumps(row) + "\n")
 
 
+def direct_variant(packet: Path, source: Path, out: Path, model: Ollama) -> int:
+    """The bulk labeler's direction pass, on a packet run's labels.
+
+    Each hostile or abusive label gets the direction prompt; anything not
+    aimed at the author folds to neutral, as in `write_bulk`. Resumes from an
+    existing output.
+    """
+    rows = {
+        row["id"]: row
+        for row in (
+            json.loads(line) for line in packet.read_text().splitlines() if line
+        )
+    }
+    done = set()
+    if out.exists():
+        done = {json.loads(line)["id"] for line in out.read_text().splitlines() if line}
+    asked = 0
+    with out.open("a") as sink:
+        for line in source.read_text().splitlines():
+            if not line.strip():
+                continue
+            labeled = json.loads(line)
+            if labeled["id"] in done:
+                continue
+            if labeled["label"] in HOSTILE:
+                row = rows[labeled["id"]]
+                raw = model.ask(
+                    direction_prompt(
+                        row["target"], row["reply"], target_post=row["target_post"]
+                    )
+                )
+                labeled["direction"] = parse_direction(raw)
+                if labeled["direction"] != "author":
+                    labeled["label"] = "neutral"
+                asked += 1
+            sink.write(json.dumps(labeled) + "\n")
+            sink.flush()
+    return asked
+
+
 def write_bulk(outdir: Path, labels_db: Path, labeler: str) -> tuple[Path, Path]:
     """Write a bulk labeler's labels for a packet's items, as scored files.
 
@@ -252,7 +295,23 @@ def run(args: argparse.Namespace) -> None:
             model.close()
 
 
-def main(argv: list[str] | None = None) -> int:
+def direct(args: argparse.Namespace) -> None:
+    """Add the direction pass to a chat run of one model and variant."""
+    stem = f"{args.model.replace(':', '_')}+{args.variant}"
+    model = Ollama(args.ollama, args.model)
+    try:
+        asked = direct_variant(
+            args.dir / "packet.jsonl",
+            args.dir / f"{stem}.jsonl",
+            args.dir / f"{stem}-directed.jsonl",
+            model,
+        )
+    finally:
+        model.close()
+    print(f"asked direction for {asked} items", file=sys.stderr)
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     pk = sub.add_parser("packet")
@@ -271,6 +330,11 @@ def main(argv: list[str] | None = None) -> int:
     rn.add_argument("--ollama", default="http://localhost:11435")
     rn.add_argument("--model", required=True)
     rn.add_argument("--variant", default="v2", choices=RUN_VARIANTS)
+    dr = sub.add_parser("direct")
+    dr.add_argument("--dir", type=Path, required=True)
+    dr.add_argument("--ollama", default="http://localhost:11435")
+    dr.add_argument("--model", required=True)
+    dr.add_argument("--variant", default="v2", choices=sorted(VARIANTS))
     bk = sub.add_parser("bulk")
     bk.add_argument("--dir", type=Path, required=True)
     bk.add_argument("--labels", type=Path, required=True)
@@ -278,7 +342,11 @@ def main(argv: list[str] | None = None) -> int:
     sc = sub.add_parser("score")
     sc.add_argument("--dir", type=Path, required=True)
     sc.add_argument("--split", default="dev", choices=("dev", "test"))
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
 
     if args.command == "packet":
         surges = sample(
@@ -305,6 +373,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {written} items to {args.dir}", file=sys.stderr)
     elif args.command == "run":
         run(args)
+    elif args.command == "direct":
+        direct(args)
     elif args.command == "bulk":
         for path in write_bulk(args.dir, args.labels, args.labeler):
             print(f"wrote {path}", file=sys.stderr)

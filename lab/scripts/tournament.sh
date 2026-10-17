@@ -9,7 +9,8 @@
 # for structured output, or `systemone` for a decision model. Each model is
 # pulled first if missing. Configs whose output already covers the packet are
 # skipped, so adding a candidate and rerunning costs only the new runs.
-# CONFIGS="model variant,model variant" replaces the candidate list.
+# CONFIGS="model variant,model variant" replaces the candidate list. Chat
+# variants also get the bulk labeler's direction pass (`-directed` copies).
 #
 # Uses its own SSH tunnel (TUNNEL_PORT, default 11436) to the Ollama host and
 # unloads each model when it is done so large models do not pile up in memory.
@@ -41,12 +42,28 @@ TUNNEL=$!
 trap 'kill $TUNNEL 2>/dev/null || true' EXIT
 for _ in $(seq 30); do curl -sf "localhost:$PORT/api/tags" >/dev/null && break; sleep 2; done
 
+# The bulk labeler's direction pass, for chat variants whose run is complete
+# and whose -directed copy is not.
+direct() {
+  local model="$1" variant="$2" stem
+  [[ "$variant" == systemone || "$variant" == *+json ]] && return 0
+  stem="$DIR/${model//:/_}+$variant"
+  [[ -f "$stem.jsonl" ]] && (( $(grep -c . "$stem.jsonl") >= ITEMS )) || return 0
+  [[ -f "$stem-directed.jsonl" ]] && (( $(grep -c . "$stem-directed.jsonl") >= ITEMS )) && return 0
+  echo "[tournament $(date +%H:%M)] $model $variant direction pass"
+  uv run python -m pileon_lab.evalset direct --dir "$DIR" \
+    --ollama "http://localhost:$PORT" --model "$model" --variant "$variant" || \
+    echo "[tournament] $model $variant direction pass failed; continuing"
+  curl -s "localhost:$PORT/api/generate" -d "{\"model\": \"$model\", \"keep_alive\": 0}" >/dev/null || true
+}
+
 for spec in "${CANDIDATES[@]}"; do
   model="${spec% *}"
   variant="${spec#* }"
   out="$DIR/${model//:/_}+$variant.jsonl"
   if [[ -f "$out" ]] && (( $(grep -c . "$out") >= ITEMS )); then
     echo "[tournament $(date +%H:%M)] $model $variant already complete"
+    direct "$model" "$variant"
     continue
   fi
   echo "[tournament $(date +%H:%M)] $model $variant"
@@ -55,6 +72,7 @@ for spec in "${CANDIDATES[@]}"; do
   uv run python -m pileon_lab.evalset run --dir "$DIR" \
     --ollama "http://localhost:$PORT" --model "$model" --variant "$variant" || \
     echo "[tournament] $model $variant failed; continuing"
+  direct "$model" "$variant"
   curl -s "localhost:$PORT/api/generate" -d "{\"model\": \"$model\", \"keep_alive\": 0}" >/dev/null || true
 done
 

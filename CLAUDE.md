@@ -298,8 +298,11 @@ except for the Muse project); open a tunnel first:
    writes a `-gated` copy that folds unaimed hostility to neutral).
    `evalset bulk --dir ... --labels ...` writes the bulk labeler's stored
    labels for the packet (`@bulk`, and `@bulk-directed` with the direction
-   pass applied) so `score` ranks them too. `CONFIGS="model variant,..."
-   lab/scripts/tournament.sh DIR` runs a chosen subset on any packet.
+   pass applied) so `score` ranks them too; `evalset direct --dir ... --model
+   M --variant V` gives a chat run the same direction pass (`-directed`), so
+   challengers compete with the bulk pipeline's two passes, not one.
+   `CONFIGS="model variant,..." lab/scripts/tournament.sh DIR` runs a chosen
+   subset on any packet, direction passes included.
 
 Hydrated post text sits only in the response cache (`data/lab/cache.db`);
 purge it after labeling runs if retention matters.
