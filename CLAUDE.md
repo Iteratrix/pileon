@@ -280,6 +280,10 @@ Most of that signal is already present 15 minutes after the amplifying post
 are mostly critical but rarely hostile ("critical dogpiles", ~8% of judged
 incidents) sit between spotlights and pile-ons on every approval signal:
 structure measures disapproval, and only text separates disagreement from
-attack, so defenses should keep those as two separate dials. Off-the-shelf
+attack, so defenses should keep those as two separate dials. About half of
+all hostile replies in targets' threads are aimed at someone other than the
+target (6% in pile-ons, about half in rallies, two thirds in spotlights), so
+an abuse gate that ignores who a reply is aimed at would block defenders and
+bystanders about as often as attackers outside pile-ons. Off-the-shelf
 toxicity/sentiment models rank hostility decently but trail the
 context-aware labeler at usable thresholds (`pileon_lab.baselines`).
