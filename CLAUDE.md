@@ -223,6 +223,12 @@ classify surges (pile-on / rally / crossfire / spotlight) in the lab.
 
 ## Stage C runbook: classifying network surges
 
+Unattended path: `deploy/stage-c.sh` (started 2026-10-16 as transient unit
+`pileon-stage-c`) waits for the replay, then runs detection, step 1, step 2
+and the packet of step 3 below; follow with `journalctl --user -u
+pileon-stage-c -f`. After it finishes: run the judges, score, build and
+publish the network sweep page.
+
 All in `lab/`, against `data/surges/<run>.jsonl.zst` from `pileon-detect`.
 The local labeler runs on muse-mini (`ssh muse-mini`, Ollama, idle otherwise
 except for the Muse project); open a tunnel first:
