@@ -3,7 +3,8 @@
 `packet` writes a blind packet of labeled network items for the gold judges,
 stratified by the bulk label so hostile items are well represented. `run`
 labels any packet (a network packet, or the study's human-gold packet from
-`pileon_lab.judges`) with a local model and a named prompt variant. `score`
+`pileon_lab.judges`) with a local model and a named prompt variant. `bulk`
+writes the bulk labeler's stored labels for a packet's items. `score`
 compares every labeler in a packet directory with the judges' consensus
 (items both judges labeled the same) on a fixed dev/test split: variants
 compete on dev; only a chosen winner is read on test. A variant only counts as
@@ -151,6 +152,34 @@ def write_gated(source: Path, out: Path) -> None:
             sink.write(json.dumps(row) + "\n")
 
 
+def write_bulk(outdir: Path, labels_db: Path, labeler: str) -> tuple[Path, Path]:
+    """Write a bulk labeler's labels for a packet's items, as scored files.
+
+    Two files: the labels as stored, and with the direction pass applied
+    (hostility not aimed at the author folds to neutral, the codebook's
+    reading of third-party negativity), which is what counts toward a pile-on.
+    """
+    key: dict[str, str] = json.loads((outdir / "key.json").read_text())
+    store = LabelStore(labels_db)
+    try:
+        labels, directed = store.labeled(labeler), store.directed(labeler)
+    finally:
+        store.close()
+    name = labeler.replace(":", "_")
+    stored = outdir / f"{name}@bulk.jsonl"
+    folded = outdir / f"{name}@bulk-directed.jsonl"
+    with stored.open("w") as raw, folded.open("w") as gated:
+        for item_id, uri in key.items():
+            label = labels.get(uri)
+            if label is None:
+                continue
+            raw.write(json.dumps({"id": item_id, "label": label}) + "\n")
+            if label in HOSTILE and directed.get(uri) != "author":
+                label = "neutral"
+            gated.write(json.dumps({"id": item_id, "label": label}) + "\n")
+    return stored, folded
+
+
 def read_labels(path: Path) -> dict[str, str]:
     out = {}
     for line in path.read_text().splitlines():
@@ -242,6 +271,10 @@ def main(argv: list[str] | None = None) -> int:
     rn.add_argument("--ollama", default="http://localhost:11435")
     rn.add_argument("--model", required=True)
     rn.add_argument("--variant", default="v2", choices=RUN_VARIANTS)
+    bk = sub.add_parser("bulk")
+    bk.add_argument("--dir", type=Path, required=True)
+    bk.add_argument("--labels", type=Path, required=True)
+    bk.add_argument("--labeler", default="llama3.3:70b+v2")
     sc = sub.add_parser("score")
     sc.add_argument("--dir", type=Path, required=True)
     sc.add_argument("--split", default="dev", choices=("dev", "test"))
@@ -272,6 +305,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {written} items to {args.dir}", file=sys.stderr)
     elif args.command == "run":
         run(args)
+    elif args.command == "bulk":
+        for path in write_bulk(args.dir, args.labels, args.labeler):
+            print(f"wrote {path}", file=sys.stderr)
     else:
         print("\n".join(score(args.dir, split=args.split)))
     return 0

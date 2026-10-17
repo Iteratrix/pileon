@@ -230,9 +230,21 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   the incumbent by >= 0.03 on human gold and not lose on dev consensus;
   llama3.3:70b+v2 won (+0.108) and is now the default. The owner confirmed
   it for the full network run unless a newer model beats it by the same
-  rule; round 2 (qwen3.8:27b-mlx, nemotron-3.5-lightning, both newer than
-  round 1's entrants) runs the same packet. nemotron-3.5-bolt needs a newer
-  Ollama than muse-mini's 0.33.2. The "contrast" and
+  rule. Round 2 (same packet, Ollama 0.40.6; `tournament-round1.txt` keeps
+  round 1): no challenger passes. qwen3.8:27b-mlx+v2 0.405 (0.629, best on
+  dev consensus of any config), nemotron-3.5-lightning 0.258 (0.248);
+  nemotron-3.5-bolt does not run (missing Metal MoE kernel in 0.40.6's
+  llama.cpp). llama after the upgrade's model conversion: byte-identical
+  labels. Structured output (`+json`) left every label unchanged for llama
+  and qwen3.8 at the same speed (neither had parse errors; llama has none in
+  5,308 bulk labels either), so it is insurance only. Decision models as
+  labels: clef 0.373 (0.528), nimble 0.373 (0.457), tev1 0.212, clef-flash
+  0.211; the `-gated` copies (aimed < 0.5 folds to neutral) are worse
+  everywhere because P(aimed) runs low, so the gate is wrong at 0.5. As
+  probabilities they rank well: P(hostile+) AUC vs human gold nimble 0.861,
+  tev1 0.850, clef 0.824 (llama labels 0.863, qwen3.5+v2 0.873, toxic-bert
+  insult 0.790); vs judge consensus clef 0.842 (0.876 times P(aimed)), best
+  of all configs. tev1 takes ~1.3 s/item, nimble ~3, clef ~8. The "contrast" and
   "reason" prompt variants did not help any model on human gold. gemma4 agrees
   with the judges best but with the humans less: judge consensus alone would
   have picked a different winner.
@@ -284,6 +296,10 @@ except for the Muse project); open a tunnel first:
    held to `codebook.LABEL_SCHEMA`) and `systemone` (a decision model: stance
    probabilities, P(aimed at the target), and an ordinal severity score; also
    writes a `-gated` copy that folds unaimed hostility to neutral).
+   `evalset bulk --dir ... --labels ...` writes the bulk labeler's stored
+   labels for the packet (`@bulk`, and `@bulk-directed` with the direction
+   pass applied) so `score` ranks them too. `CONFIGS="model variant,..."
+   lab/scripts/tournament.sh DIR` runs a chosen subset on any packet.
 
 Hydrated post text sits only in the response cache (`data/lab/cache.db`);
 purge it after labeling runs if retention matters.
@@ -318,3 +334,16 @@ reply stops ~1%: harm is one-shot per author. Every structural rule sits near
 the diagonal (harm stopped ~= supporters silenced), so prevention without
 collateral has to filter exposure by text label and direction, with the gate
 as the blunt emergency option.
+
+Network-wide surges (interim, Aug 19-26, 300-item judge packet stratified
+half bulk-hostile; Opus and Fable judges agree on 260): author-directed
+hostility is rare (13 and 19 hostile, 0 abusive), and most negativity is at
+third parties the target posted about. llama3.3:70b+v2, the study's winner,
+does not transfer: of the 150 items it labeled hostile the judges agree 12
+are hostile and 103 neutral; after its direction pass, 64 remain (12 hostile,
+28 neutral by consensus). Weighted kappa vs consensus 0.31 dev / 0.46 test
+with the direction pass, 0.19 / 0.29 without; hostile recall 1.00, precision
+0.18 / 0.32. It also calls many neutral replies supportive. The study's
+packet (one amplifier's targets, hostility mostly at them) hid this third-party
+failure, so the labeler choice for network labels has to be made on the
+network packet.

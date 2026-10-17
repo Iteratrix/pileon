@@ -9,6 +9,7 @@
 # for structured output, or `systemone` for a decision model. Each model is
 # pulled first if missing. Configs whose output already covers the packet are
 # skipped, so adding a candidate and rerunning costs only the new runs.
+# CONFIGS="model variant,model variant" replaces the candidate list.
 #
 # Uses its own SSH tunnel (TUNNEL_PORT, default 11436) to the Ollama host and
 # unloads each model when it is done so large models do not pile up in memory.
@@ -29,6 +30,9 @@ CANDIDATES=(
   "llama3.3:70b v2+json" "qwen3.8:27b-mlx v2+json"
   "clef-flash systemone" "clef systemone" "nimble systemone" "tev1 systemone"
 )
+if [[ -n "${CONFIGS:-}" ]]; then
+  IFS=, read -ra CANDIDATES <<< "$CONFIGS"
+fi
 ITEMS="$(grep -c . "$DIR/packet.jsonl")"
 
 ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
