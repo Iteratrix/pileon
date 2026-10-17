@@ -15,7 +15,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import httpx
 
@@ -49,7 +49,13 @@ class Response:
 
 
 class Cache:
-    """URL-keyed response cache in one SQLite file."""
+    """URL-keyed response cache in one SQLite file, plus a per-post index.
+
+    Batched endpoints (`getPosts` takes 25 URIs) make URL keys depend on how a
+    caller happened to batch, so posts are also indexed one by one: any
+    subset of known posts is served without refetching. A post that a batch
+    asked for but did not return is recorded as missing (deleted or hidden).
+    """
 
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,8 +65,52 @@ class Cache:
             "url TEXT PRIMARY KEY, status INTEGER NOT NULL, body TEXT, "
             "fetched_at REAL NOT NULL)"
         )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS posts (uri TEXT PRIMARY KEY, body TEXT)"
+        )
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._pending = 0
+        self._index_posts()
+
+    def _index_posts(self) -> None:
+        """Fill the per-post index from cached `getPosts` batches, once."""
+        if self._conn.execute("SELECT 1 FROM posts LIMIT 1").fetchone():
+            return
+        rows = self._conn.execute(
+            "SELECT url, body FROM responses "
+            "WHERE url LIKE '%app.bsky.feed.getPosts%' AND status = 200"
+        ).fetchall()
+        for url, body in rows:
+            asked = [v for k, v in parse_qsl(urlsplit(url).query) if k == "uris"]
+            posts = (json.loads(body) or {}).get("posts", []) if body else []
+            self.put_posts(posts, asked)
+        self.commit()
+
+    def get_posts(self, uris: list[str]) -> dict[str, dict[str, Any] | None]:
+        """Known posts by URI (`None` = known to be missing); unknown URIs absent."""
+        out: dict[str, dict[str, Any] | None] = {}
+        for start in range(0, len(uris), 500):
+            batch = uris[start : start + 500]
+            marks = ",".join("?" * len(batch))
+            rows = self._conn.execute(
+                f"SELECT uri, body FROM posts WHERE uri IN ({marks})",  # noqa: S608
+                batch,
+            )
+            for uri, body in rows:
+                out[uri] = json.loads(body) if body else None
+        return out
+
+    def put_posts(self, posts: list[dict[str, Any]], asked: list[str]) -> None:
+        """Index returned posts, and mark asked-for URIs not returned as missing."""
+        returned = {post["uri"] for post in posts if "uri" in post}
+        self._conn.executemany(
+            "INSERT OR REPLACE INTO posts VALUES (?, ?)",
+            [(post["uri"], json.dumps(post)) for post in posts if "uri" in post],
+        )
+        self._conn.executemany(
+            "INSERT OR IGNORE INTO posts VALUES (?, NULL)",
+            [(uri,) for uri in asked if uri not in returned],
+        )
 
     def get(self, url: str) -> Response | None:
         row = self._conn.execute(
@@ -159,6 +209,14 @@ class Fetcher:
         self._cache.put(url, response)
         self.stats.fetched += 1
         return response
+
+    @property
+    def cache(self) -> Cache:
+        return self._cache
+
+    @property
+    def offline(self) -> bool:
+        return self._offline
 
     async def xrpc(
         self, base: str, method: str, params: list[tuple[str, str]]

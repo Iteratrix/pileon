@@ -67,25 +67,32 @@ def _counts(post: dict[str, Any]) -> PostCounts:
 
 
 async def post_counts(fetcher: Fetcher, uris: list[str]) -> dict[str, PostCounts]:
-    """Return current engagement counts for each URI that still resolves."""
+    """Return current engagement counts for each URI that still resolves.
+
+    Served from the per-post index when known; only unknown URIs are fetched,
+    so the result never depends on how callers batch their requests.
+    """
     unique = sorted(set(uris))
-    batches = [
-        unique[i : i + _POSTS_BATCH] for i in range(0, len(unique), _POSTS_BATCH)
-    ]
-    replies = await asyncio.gather(
-        *(
-            fetcher.xrpc(
-                APPVIEW, "app.bsky.feed.getPosts", [("uris", uri) for uri in batch]
+    known = fetcher.cache.get_posts(unique)
+    missing = [u for u in unique if u not in known]
+    if missing and not fetcher.offline:
+        batches = [
+            missing[i : i + _POSTS_BATCH] for i in range(0, len(missing), _POSTS_BATCH)
+        ]
+        replies = await asyncio.gather(
+            *(
+                fetcher.xrpc(
+                    APPVIEW, "app.bsky.feed.getPosts", [("uris", uri) for uri in batch]
+                )
+                for batch in batches
             )
-            for batch in batches
         )
-    )
-    found: dict[str, PostCounts] = {}
-    for response in replies:
-        for post in (response.body or {}).get("posts", []):
-            counts = _counts(post)
-            found[counts.uri] = counts
-    return found
+        for batch, response in zip(batches, replies, strict=True):
+            if response.ok and response.body is not None:
+                fetcher.cache.put_posts(response.body.get("posts", []), batch)
+        fetcher.cache.commit()
+        known = fetcher.cache.get_posts(unique)
+    return {uri: _counts(post) for uri, post in known.items() if post is not None}
 
 
 async def relationships(

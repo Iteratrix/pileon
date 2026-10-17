@@ -262,3 +262,7 @@ Results so far come from the private study and are kept in
 target's own baseline) says a surge is happening; approval signals (likes on
 the target post vs on the amplifier's post and the replies, repliers not
 liking what they reply to) separate pile-ons from rallies without any text.
+Most of that signal is already present 15 minutes after the amplifying post
+(`pileon_lab.early`), so a live defense can act early. Off-the-shelf
+toxicity/sentiment models rank hostility decently but trail the
+context-aware labeler at usable thresholds (`pileon_lab.baselines`).
