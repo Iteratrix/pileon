@@ -22,7 +22,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -55,22 +55,32 @@ class Item:
 class Ollama:
     """Chat completions from a local Ollama server, deterministic settings."""
 
-    def __init__(self, base_url: str, model: str, *, timeout: float = 300.0) -> None:
-        self._http = httpx.Client(base_url=base_url, timeout=timeout)
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        *,
+        timeout: float = 300.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._http = httpx.Client(
+            base_url=base_url, timeout=timeout, transport=transport
+        )
         self.model = model
 
-    def ask(self, prompt: str) -> str:
-        reply = self._http.post(
-            "/api/chat",
-            json={
-                "model": self.model,
-                "stream": False,
-                "keep_alive": "60m",
-                "think": False,
-                "options": {"temperature": 0, "num_ctx": 8192},
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
+    def ask(self, prompt: str, *, schema: dict[str, Any] | None = None) -> str:
+        """The reply to `prompt`; `schema` holds decoding to that JSON schema."""
+        body: dict[str, Any] = {
+            "model": self.model,
+            "stream": False,
+            "keep_alive": "60m",
+            "think": False,
+            "options": {"temperature": 0, "num_ctx": 8192},
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if schema is not None:
+            body["format"] = schema
+        reply = self._http.post("/api/chat", json=body)
         reply.raise_for_status()
         content: str = reply.json()["message"]["content"]
         return content

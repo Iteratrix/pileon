@@ -19,16 +19,25 @@ import hashlib
 import json
 import random
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from pileon_lab.agreement import weighted_kappa
-from pileon_lab.codebook import V2_LABELS, VARIANTS, codebook_text, parse_label
+from pileon_lab.codebook import (
+    LABEL_SCHEMA,
+    V2_LABELS,
+    VARIANTS,
+    codebook_text,
+    parse_label,
+)
+from pileon_lab.decision import SystemOne, gate
 from pileon_lab.fetch import Cache, Fetcher
 from pileon_lab.label import Item, LabelStore, Ollama, hydrate
 from pileon_lab.surges import read_surges, sample
 
 HOSTILE = frozenset({"hostile", "abusive"})
 JUDGES = ("opus", "fable")
+RUN_VARIANTS = sorted([*VARIANTS, *(f"{v}+json" for v in VARIANTS), "systemone"])
 
 
 def split_of(item_id: str) -> str:
@@ -71,9 +80,49 @@ def write_packet(
     return len(chosen)
 
 
-def run_variant(packet: Path, out: Path, model: Ollama, variant: str) -> int:
-    """Label every packet item with `variant`; resumes from an existing output."""
-    build = VARIANTS[variant]
+Labeler = Callable[[dict[str, str]], dict[str, object]]
+
+
+def chat_labeler(model: Ollama, variant: str) -> Labeler:
+    """A chat labeler; a `+json` suffix holds decoding to the label schema."""
+    base, structured = variant.removesuffix("+json"), variant.endswith("+json")
+    build = VARIANTS[base]
+    schema = LABEL_SCHEMA if structured else None
+
+    def label(row: dict[str, str]) -> dict[str, object]:
+        raw = model.ask(
+            build(row["target"], row["reply"], row["target_post"], row["framing"]),
+            schema=schema,
+        )
+        value, confidence = parse_label(raw)
+        return {"label": value, "confidence": confidence}
+
+    return label
+
+
+def decision_labeler(model: SystemOne) -> Labeler:
+    """A decision-model labeler that keeps every probability it returns."""
+
+    def label(row: dict[str, str]) -> dict[str, object]:
+        decision = model.decide(
+            row["target"],
+            row["reply"],
+            target_post=row["target_post"],
+            framing=row["framing"],
+        )
+        return {
+            "label": decision.label,
+            "confidence": decision.confidence,
+            "probabilities": decision.probabilities,
+            "aimed": decision.aimed,
+            "severity": decision.severity,
+        }
+
+    return label
+
+
+def run_variant(packet: Path, out: Path, labeler: Labeler) -> int:
+    """Label every packet item; resumes from an existing output."""
     done = set()
     if out.exists():
         done = {json.loads(line)["id"] for line in out.read_text().splitlines() if line}
@@ -83,19 +132,23 @@ def run_variant(packet: Path, out: Path, model: Ollama, variant: str) -> int:
             row = json.loads(line)
             if row["id"] in done:
                 continue
-            raw = model.ask(
-                build(row["target"], row["reply"], row["target_post"], row["framing"])
-            )
-            label, confidence = parse_label(raw)
-            sink.write(
-                json.dumps({"id": row["id"], "label": label, "confidence": confidence})
-                + "\n"
-            )
+            sink.write(json.dumps({"id": row["id"], **labeler(row)}) + "\n")
             sink.flush()
             count += 1
             if count % 25 == 0:
                 print(f"[{out.stem}] {count}", file=sys.stderr, flush=True)
     return count
+
+
+def write_gated(source: Path, out: Path) -> None:
+    """Copy decision rows with hostility not aimed at the target as neutral."""
+    with out.open("w") as sink:
+        for line in source.read_text().splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            row["label"] = gate(row["label"], row.get("aimed"))
+            sink.write(json.dumps(row) + "\n")
 
 
 def read_labels(path: Path) -> dict[str, str]:
@@ -150,6 +203,26 @@ def score(outdir: Path, *, split: str) -> list[str]:
     return lines
 
 
+def run(args: argparse.Namespace) -> None:
+    """Label a packet with one model and variant (`systemone`: a decision model)."""
+    packet, name = args.dir / "packet.jsonl", args.model.replace(":", "_")
+    if args.variant == "systemone":
+        decider = SystemOne(args.ollama, args.model)
+        try:
+            out = args.dir / f"{name}+systemone.jsonl"
+            run_variant(packet, out, decision_labeler(decider))
+            write_gated(out, args.dir / f"{name}+systemone-gated.jsonl")
+        finally:
+            decider.close()
+    else:
+        model = Ollama(args.ollama, args.model)
+        try:
+            out = args.dir / f"{name}+{args.variant}.jsonl"
+            run_variant(packet, out, chat_labeler(model, args.variant))
+        finally:
+            model.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -168,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     rn.add_argument("--dir", type=Path, required=True)
     rn.add_argument("--ollama", default="http://localhost:11435")
     rn.add_argument("--model", required=True)
-    rn.add_argument("--variant", default="v2", choices=sorted(VARIANTS))
+    rn.add_argument("--variant", default="v2", choices=RUN_VARIANTS)
     sc = sub.add_parser("score")
     sc.add_argument("--dir", type=Path, required=True)
     sc.add_argument("--split", default="dev", choices=("dev", "test"))
@@ -198,17 +271,7 @@ def main(argv: list[str] | None = None) -> int:
         written = write_packet(items, labels, args.dir, size=args.size, seed=args.seed)
         print(f"wrote {written} items to {args.dir}", file=sys.stderr)
     elif args.command == "run":
-        model = Ollama(args.ollama, args.model)
-        try:
-            name = f"{args.model.replace(':', '_')}+{args.variant}"
-            run_variant(
-                args.dir / "packet.jsonl",
-                args.dir / f"{name}.jsonl",
-                model,
-                args.variant,
-            )
-        finally:
-            model.close()
+        run(args)
     else:
         print("\n".join(score(args.dir, split=args.split)))
     return 0

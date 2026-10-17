@@ -123,6 +123,31 @@ def read_labels(path: Path) -> dict[str, str]:
     return out
 
 
+def probability_entries(path: Path) -> dict[str, dict[str, float]]:
+    """Continuous hostility scores from a decision model's probabilities."""
+    if path.stem.endswith("-gated"):
+        return {}
+    hostile: dict[str, float] = {}
+    aimed: dict[str, float] = {}
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        probabilities = row.get("probabilities")
+        if not probabilities:
+            continue
+        p = sum(float(probabilities.get(label, 0.0)) for label in HOSTILE)
+        hostile[row["id"]] = p
+        if row.get("aimed") is not None:
+            aimed[row["id"]] = p * float(row["aimed"])
+    out = {}
+    if hostile:
+        out[f"{path.stem} P(hostile+)"] = hostile
+    if aimed:
+        out[f"{path.stem} P(hostile+) x aimed"] = aimed
+    return out
+
+
 def evaluate(
     entries: dict[str, dict[str, float]], gold: dict[str, bool], *, natural: set[str]
 ) -> list[str]:
@@ -172,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         labels = read_labels(path)
         entries[path.stem] = {i: float(ORDINAL[label]) for i, label in labels.items()}
         natural.add(path.stem)
+        entries.update(probability_entries(path))
 
     out = []
     judges = {j: read_labels(args.dir / f"{j}.jsonl") for j in ("opus", "fable")}

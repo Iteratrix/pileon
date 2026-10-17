@@ -64,6 +64,41 @@ PROMPT_V2 = (
 )
 
 
+V2_DEFINITIONS = {
+    "supportive": (
+        "defends, agrees with, praises, or sympathizes with the target; "
+        "includes attacking the target's critics on the target's behalf"
+    ),
+    "neutral": (
+        "informational, off-topic, a question, or not evaluative toward the "
+        "target; includes negativity aimed at someone OTHER than the target"
+    ),
+    "critical": (
+        "substantive disagreement with or negative judgment of the target's "
+        "post or views, without personal contempt"
+    ),
+    "hostile": (
+        "personal contempt aimed at the target - insults, mockery, ridicule, "
+        "name-calling - but no slurs, threats, or dehumanization"
+    ),
+    "abusive": (
+        "slurs, threats, wishes of harm or death, sexual degradation, or "
+        "dehumanization aimed at the target"
+    ),
+}
+"""Each v2 label's definition, worded exactly as in `PROMPT_V2`."""
+
+LABEL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "label": {"type": "string", "enum": list(V2_LABELS)},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+    "required": ["label", "confidence"],
+}
+"""JSON schema for structured output: the reply `PROMPT_V2` asks for."""
+
+
 def codebook_text() -> str:
     """The codebook as a labeler sees it, without the prompt's I/O lines."""
     return PROMPT_V2.partition("Reply with ONLY")[0].rstrip() + "\n"

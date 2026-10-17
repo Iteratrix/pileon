@@ -104,7 +104,8 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   (valence codebook v2), `agreement.py` (kappa), `judges.py` (LLM gold-judge
   calibration), `surges.py` / `label.py` / `network.py` / `evalset.py`
   (network surges: sample, label, features, judge packets), `baselines.py`
-  (off-the-shelf toxicity models), `early.py` (early warning), `nuke.py`
+  (off-the-shelf toxicity models), `decision.py` (decision models through
+  Ollama's `/v1/systemone`), `early.py` (early warning), `nuke.py`
   (blocklists and gates scored by counterfactual replay). Cache and outputs
   in `data/lab/`. Pipeline: `enrich` (warm the cache from a study database)
   -> `features` -> `sweep` (with `--template`
@@ -278,7 +279,11 @@ except for the Muse project); open a tunnel first:
    ranks them against judge consensus. Candidates must also not regress on
    the human gold: `evalset run --dir ../data/lab/judges --model M` then
    `pileon_lab.judges score` on the study packet. Read `--split test` only
-   for the final choice. Prompt variants live in `evalset.VARIANTS`.
+   for the final choice. Prompt variants live in `codebook.VARIANTS`;
+   `evalset run --variant` also takes `<variant>+json` (structured output
+   held to `codebook.LABEL_SCHEMA`) and `systemone` (a decision model: stance
+   probabilities, P(aimed at the target), and an ordinal severity score; also
+   writes a `-gated` copy that folds unaimed hostility to neutral).
 
 Hydrated post text sits only in the response cache (`data/lab/cache.db`);
 purge it after labeling runs if retention matters.

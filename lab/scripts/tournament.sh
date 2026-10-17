@@ -5,8 +5,10 @@
 #
 #   lab/scripts/tournament.sh <packet dir> [study db] [extra gold json]
 #
-# Configs whose output already covers the packet are skipped, so adding a
-# candidate and rerunning costs only the new runs.
+# Variants: a codebook prompt (v2, contrast, reason), the same with `+json`
+# for structured output, or `systemone` for a decision model. Each model is
+# pulled first if missing. Configs whose output already covers the packet are
+# skipped, so adding a candidate and rerunning costs only the new runs.
 #
 # Uses its own SSH tunnel (TUNNEL_PORT, default 11436) to the Ollama host and
 # unloads each model when it is done so large models do not pile up in memory.
@@ -24,6 +26,8 @@ CANDIDATES=(
   "gemma4:31b v2" "gemma4:31b contrast"
   "mistral-small3.1:24b v2" "qwen3:32b v2" "llama3.3:70b v2"
   "qwen3.8:27b-mlx v2" "nemotron-3.5-lightning v2" "nemotron-3.5-bolt v2"
+  "llama3.3:70b v2+json" "qwen3.8:27b-mlx v2+json"
+  "clef-flash systemone" "clef systemone" "nimble systemone" "tev1 systemone"
 )
 ITEMS="$(grep -c . "$DIR/packet.jsonl")"
 
@@ -42,6 +46,8 @@ for spec in "${CANDIDATES[@]}"; do
     continue
   fi
   echo "[tournament $(date +%H:%M)] $model $variant"
+  curl -sf "localhost:$PORT/api/pull" -d "{\"model\": \"$model\", \"stream\": false}" >/dev/null || \
+    echo "[tournament] pull of $model failed; trying anyway"
   uv run python -m pileon_lab.evalset run --dir "$DIR" \
     --ollama "http://localhost:$PORT" --model "$model" --variant "$variant" || \
     echo "[tournament] $model $variant failed; continuing"
@@ -62,5 +68,8 @@ done
         ${EXTRA_GOLD:+--extra-gold "$EXTRA_GOLD"} --dir "$DIR" --judge "$file" | tail -1
     done
   fi
+  echo "== AUC and F1 for hostile or worse (decision models also as probabilities)"
+  uv run python -m pileon_lab.baselines --dir "$DIR" \
+    ${STUDY_DB:+--study-db "$STUDY_DB"} ${EXTRA_GOLD:+--extra-gold "$EXTRA_GOLD"}
 } > "$DIR/tournament.txt" 2>&1
 echo "[tournament $(date +%H:%M)] done: $DIR/tournament.txt"
