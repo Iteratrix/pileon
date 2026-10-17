@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/pileon-core", "crates/pileon-recorder"]
+members = ["crates/pileon-core", "crates/pileon-detect", "crates/pileon-recorder"]
 
 [workspace.package]
 version = "0.1.0"

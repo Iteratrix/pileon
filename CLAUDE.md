@@ -65,6 +65,24 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
 - `crates/pileon-core/` - pure Rust: Jetstream event parsing (live frame and
   replay SDK line into one `Event`) and the event-to-row mapping. Detector
   code goes here too, so ingest and detection share one model.
+- `crates/pileon-core/src/surge.rs` - the surge detector (Stage A): a pure
+  state machine over post edges in time order. Arrivals = replies to, quotes
+  of, mentions of a target by others; strangers = no interaction either way in
+  30 days (day-bucketed Bloom filters, `bloom.rs`). Baseline = decayed count of
+  stranger arrivals normalized by observed time (unbiased from day one).
+  Opens when the trailing window holds >= `min_strangers` distinct strangers
+  with Poisson surprise >= `min_surprise` (`poisson.rs`); closes after
+  `quiet_hours` without strangers or `max_hours`. Records arrivals (including
+  a lookback before onset) and engagement on quotes of the target's posts
+  (amplifier candidates).
+- `crates/pileon-detect/` - `pileon-detect` binary: merges the recorded
+  `posts`/`likes`/`reposts` partitions from any roots in seq order (dropping
+  overlap), runs the detector, writes one surge per JSON line (`.zst` output
+  is compressed). Arrivals are compact rows `[seconds from onset, author,
+  kind r/q/m, post rkey, target-post rkey, stranger]`. Every dial is a flag
+  (`--min-strangers`, `--min-surprise`, `--window-minutes`, ...). Example:
+  `target/release/pileon-detect --root data/jetstream/replay --root
+  data/jetstream/live --out data/surges/all.jsonl.zst`. ~1M rows/s, ~1 GB RAM.
 - `crates/pileon-recorder/` - `pileon-recorder` binary: `live` (WebSocket
   tail) and `ingest` (SDK JSON lines on stdin), hourly zstd JSONL partitions,
   `state.json` cursor, disk floor (exit 75).
@@ -191,6 +209,17 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   Opus vs Fable 0.920 (5-point, 88% exact). Both pass. Network-wide gold =
   both judges on every item; their disagreements are flagged, not resolved by
   either judge.
+
+## Surge detector status (2026-10-16)
+
+First run over replay Aug 5-11 (all warm-up): ~2,000 surges/day at the loose
+defaults (8 strangers, surprise 6), median 32 distinct strangers, 89%
+reply-driven, 84% with at least one quote of the target's post, median
+duration 13 h. Validated against one high-follower amplifier's quote posts
+(details in `private/NOTES.md`): quote posts that coincide with a detected
+surge drew a median of 16 distinct responders to the quoted post in 48 h;
+those not detected drew a median of 2. Next: rerun on the full replay, then
+classify surges (pile-on / rally / crossfire / spotlight) in the lab.
 
 ## Findings
 

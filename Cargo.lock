@@ -526,10 +526,28 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 name = "pileon-core"
 version = "0.1.0"
 dependencies = [
+ "az",
  "jiff",
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "pileon-detect"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "az",
+ "clap",
+ "env_logger",
+ "jiff",
+ "log",
+ "pileon-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zstd",
 ]
 
 [[package]]
