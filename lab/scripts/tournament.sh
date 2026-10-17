@@ -5,6 +5,9 @@
 #
 #   lab/scripts/tournament.sh <packet dir> [study db] [extra gold json]
 #
+# Configs whose output already covers the packet are skipped, so adding a
+# candidate and rerunning costs only the new runs.
+#
 # Uses its own SSH tunnel (TUNNEL_PORT, default 11436) to the Ollama host and
 # unloads each model when it is done so large models do not pile up in memory.
 set -euo pipefail
@@ -20,7 +23,9 @@ CANDIDATES=(
   "qwen3.6:35b-a3b v2" "qwen3.6:35b-a3b contrast" "qwen3.6:35b-a3b reason"
   "gemma4:31b v2" "gemma4:31b contrast"
   "mistral-small3.1:24b v2" "qwen3:32b v2" "llama3.3:70b v2"
+  "qwen3.8:27b-mlx v2" "nemotron-3.5-lightning v2"
 )
+ITEMS="$(grep -c . "$DIR/packet.jsonl")"
 
 ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
   -N -L "$PORT:localhost:11434" "$HOST" &
@@ -31,6 +36,11 @@ for _ in $(seq 30); do curl -sf "localhost:$PORT/api/tags" >/dev/null && break; 
 for spec in "${CANDIDATES[@]}"; do
   model="${spec% *}"
   variant="${spec#* }"
+  out="$DIR/${model//:/_}+$variant.jsonl"
+  if [[ -f "$out" ]] && (( $(grep -c . "$out") >= ITEMS )); then
+    echo "[tournament $(date +%H:%M)] $model $variant already complete"
+    continue
+  fi
   echo "[tournament $(date +%H:%M)] $model $variant"
   uv run python -m pileon_lab.evalset run --dir "$DIR" \
     --ollama "http://localhost:$PORT" --model "$model" --variant "$variant" || \

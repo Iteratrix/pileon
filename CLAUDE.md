@@ -53,7 +53,12 @@ nothing that names the study's amplifier or targets belongs in tracked files.
      does early action (detach quote, threadgate, block instigator) break the
      cycle? Measurable via natural experiments (detaches and blocks are public
      records). Also: allow replies but instantly block posts that cross an
-     abuse threshold.
+     abuse threshold. Owner's leaning for production (2026-10-17): detect
+     hostile quote posts early and detach them (postgate
+     `detachedEmbeddingUris`), pending what replay validates. Recorded
+     postgates carry `detached` URIs and `quotes_disabled` with times, so
+     targets' real detaches are the natural experiment. A reply filter by
+     text label was proposed and parked.
 2. Productionize some or all of the above. Rust core (pure, no I/O, `Fetch`
    trait, like `../bluesky-crawler`); research stays in Python (`lab/`).
 
@@ -148,9 +153,11 @@ Spacedust (`wantedSubjectDids`) but should run on our own tail in production.
 - **Live:** `pileon-recorder.service` tails `jetstream.us-west.bsky.network`
   into `data/jetstream/live/`. True first recorded seq 27068492305
   (2026-10-17 00:48 UTC); follows were added at seq 27069071413 (01:10 UTC).
-  Keeps every like (~1 GB/day); a 14-day prune to likes-on-quote-posts is still
-  to be built (first partitions turn 14 days old on 2026-10-30). Total
-  ~1.5 GB/day compressed with follows (~0.13 GB/day of it).
+  Keeps every like (~1.05 GB/day): the owner decided on 2026-10-17 not to
+  prune them, since like signals are the strongest text-free features.
+  Revisit (prune to likes on quote posts, or add disk) when free disk falls
+  below 60 GB, projected early December. Total ~1.55 GB/day compressed with
+  follows (~0.07 GB/day of it).
 - **Replay:** `pileon-replay.service` backfills the archive's live era, seq
   (24385886263, 27069071412]: from the end of the bootstrap (segment 6887,
   2026-08-05 15:41 UTC) to just before live follow capture. Likes kept only on
@@ -220,7 +227,11 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   0.419 (0.579), qwen3.5+contrast 0.418 (0.416), mistral-small3.1:24b 0.392,
   qwen3.6:35b-a3b+v2 0.338, qwen3.5+reason 0.240, qwen3:32b 0.239. Rule: beat
   the incumbent by >= 0.03 on human gold and not lose on dev consensus;
-  llama3.3:70b+v2 won (+0.108) and is now the default. The "contrast" and
+  llama3.3:70b+v2 won (+0.108) and is now the default. The owner confirmed
+  it for the full network run unless a newer model beats it by the same
+  rule; round 2 (qwen3.8:27b-mlx, nemotron-3.5-lightning, both newer than
+  round 1's entrants) runs the same packet. nemotron-3.5-bolt needs a newer
+  Ollama than muse-mini's 0.33.2. The "contrast" and
   "reason" prompt variants did not help any model on human gold. gemma4 agrees
   with the judges best but with the humans less: judge consensus alone would
   have picked a different winner.
