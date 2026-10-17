@@ -263,6 +263,10 @@ target's own baseline) says a surge is happening; approval signals (likes on
 the target post vs on the amplifier's post and the replies, repliers not
 liking what they reply to) separate pile-ons from rallies without any text.
 Most of that signal is already present 15 minutes after the amplifying post
-(`pileon_lab.early`), so a live defense can act early. Off-the-shelf
+(`pileon_lab.early`), so a live defense can act early. Surges whose replies
+are mostly critical but rarely hostile ("critical dogpiles", ~8% of judged
+incidents) sit between spotlights and pile-ons on every approval signal:
+structure measures disapproval, and only text separates disagreement from
+attack, so defenses should keep those as two separate dials. Off-the-shelf
 toxicity/sentiment models rank hostility decently but trail the
 context-aware labeler at usable thresholds (`pileon_lab.baselines`).
