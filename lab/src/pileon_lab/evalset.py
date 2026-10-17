@@ -157,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     pk.add_argument("--surges", type=Path, required=True)
     pk.add_argument("--cache", type=Path, required=True)
     pk.add_argument("--labels", type=Path, required=True)
-    pk.add_argument("--labeler", default="qwen3.5:27b-mlx+v2")
+    pk.add_argument("--labeler", default="llama3.3:70b+v2")
     pk.add_argument("--sample-size", type=int, default=500)
     pk.add_argument("--per-surge", type=int, default=30)
     pk.add_argument("--seed", type=int, default=20261017)

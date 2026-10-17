@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--surges", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--labels", type=Path, required=True)
-    parser.add_argument("--labeler", default="qwen3.5:27b-mlx+v2")
+    parser.add_argument("--labeler", default="llama3.3:70b+v2")
     parser.add_argument("--sample-size", type=int, default=500)
     parser.add_argument("--seed", type=int, default=20261017)
     parser.add_argument("--include-warmup", action="store_true")

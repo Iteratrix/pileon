@@ -209,6 +209,17 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   Opus vs Fable 0.920 (5-point, 88% exact). Both pass. Network-wide gold =
   both judges on every item; their disagreements are flagged, not resolved by
   either judge.
+- Labeler tournament (2026-10-17, `lab/scripts/tournament.sh`, 11 local
+  model/prompt configs on muse-mini, same packet). Weighted kappa vs human
+  gold (judge-consensus dev in parentheses): llama3.3:70b+v2 0.535 (0.413),
+  gemma4:31b+v2 0.445 (0.569), qwen3.5:27b-mlx+v2 0.427 (0.374), gemma4+contrast
+  0.419 (0.579), qwen3.5+contrast 0.418 (0.416), mistral-small3.1:24b 0.392,
+  qwen3.6:35b-a3b+v2 0.338, qwen3.5+reason 0.240, qwen3:32b 0.239. Rule: beat
+  the incumbent by >= 0.03 on human gold and not lose on dev consensus;
+  llama3.3:70b+v2 won (+0.108) and is now the default. The "contrast" and
+  "reason" prompt variants did not help any model on human gold. gemma4 agrees
+  with the judges best but with the humans less: judge consensus alone would
+  have picked a different winner.
 
 ## Surge detector status (2026-10-16)
 
@@ -236,8 +247,10 @@ except for the Muse project); open a tunnel first:
 
 1. Label a sample: `uv run python -m pileon_lab.label --surges S --cache
    ../data/lab/cache.db --labels ../data/lab/labels.db --sample-size 500
-   --per-surge 30` (stratified by size, warm-up excluded; ~2 s/item with
-   `qwen3.5:27b-mlx`, so 15k items is ~9 h; resumable).
+   --per-surge 30` (stratified by size, warm-up excluded; resumable). The
+   default labeler is `llama3.3:70b` + v2 (tournament winner, see
+   Constraints), ~6 s/item, so 500 surges (~14k items) take ~23 h;
+   `qwen3.5:27b-mlx` + v2 is ~2.6 s/item if speed matters more than accuracy.
 2. Features: `uv run python -m pileon_lab.network --surges S --cache ...
    --labels ... --enrich --out ../data/lab/network-features.jsonl` (same
    sample/seed), then `pileon_lab.sweep --features ... --template
