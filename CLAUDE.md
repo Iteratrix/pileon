@@ -181,4 +181,9 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   match the 184 existing human gold labels in qp-pileon at least as well as
   the local labeler did (weighted kappa ~0.40); agreement between the judges is
   extra evidence on top, never a substitute (model-model agreement is
-  consistency, not validity).
+  consistency, not validity). Calibrated 2026-10-16 (`pileon_lab.judges`,
+  blind packet in `data/lab/judges/`, 123 persons-only items, mapping B):
+  bulk qwen v2 weighted kappa 0.427; Opus 5.5 judge 0.705; Fable judge 0.700;
+  Opus vs Fable 0.920 (5-point, 88% exact). Both pass. Network-wide gold =
+  both judges on every item; their disagreements are flagged, not resolved by
+  either judge.
