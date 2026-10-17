@@ -15,6 +15,7 @@ const COLLECTIONS = [
   'app.bsky.feed.like',
   'app.bsky.feed.repost',
   'app.bsky.graph.block',
+  'app.bsky.graph.follow',
   'app.bsky.feed.postgate',
   'app.bsky.feed.threadgate',
   'app.bsky.graph.listitem',

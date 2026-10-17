@@ -108,13 +108,13 @@ pub struct SubjectRecord {
     pub via: Option<StrongRef>,
 }
 
-/// An `app.bsky.graph.block` record.
+/// An `app.bsky.graph.block` or `app.bsky.graph.follow` record.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Block {
+pub struct AccountEdge {
     /// The client-reported creation time.
     pub created_at: Option<String>,
-    /// The blocked account.
+    /// The blocked or followed account.
     pub subject: String,
 }
 

@@ -7,8 +7,10 @@ Wants=network-online.target
 [Service]
 Environment=NODE=%h/.local/share/fnm/aliases/default/bin/node
 # Window: after the end of the archive bootstrap (segment 6887) through the
-# event just before the live recorder's first_seq (27068492305).
-ExecStart=/bin/bash -o pipefail -c '"$NODE" %h/Projects/pileon/replay/replay.mjs --after 24385886263 --before 27068492304 --state %h/Projects/pileon/data/jetstream/replay/state.json | %h/.cargo/bin/pileon-recorder ingest --root %h/Projects/pileon/data/jetstream/replay --host jetstream.us-west.bsky.network --likes on-quotes --min-free-gib 20'
+# last event before the live recorder began recording follows (27069071413).
+# Live started at 27068492305 for every other table, so the two sources
+# overlap there; rows share seq numbers and dedup on seq is exact.
+ExecStart=/bin/bash -o pipefail -c '"$NODE" %h/Projects/pileon/replay/replay.mjs --after 24385886263 --before 27069071412 --state %h/Projects/pileon/data/jetstream/replay/state.json | %h/.cargo/bin/pileon-recorder ingest --root %h/Projects/pileon/data/jetstream/replay --host jetstream.us-west.bsky.network --likes on-quotes --min-free-gib 20'
 # 3 = caught up to the sealed tip before the window end: retry later.
 Restart=on-failure
 RestartSec=600

@@ -71,6 +71,8 @@ pub enum Collection {
     Repost,
     /// `app.bsky.graph.block`.
     Block,
+    /// `app.bsky.graph.follow`.
+    Follow,
     /// `app.bsky.feed.postgate`.
     Postgate,
     /// `app.bsky.feed.threadgate`.
@@ -85,11 +87,12 @@ pub enum Collection {
 
 impl Collection {
     /// Every collection the recorder subscribes to.
-    pub const RECORDED: [Collection; 8] = [
+    pub const RECORDED: [Collection; 9] = [
         Collection::Post,
         Collection::Like,
         Collection::Repost,
         Collection::Block,
+        Collection::Follow,
         Collection::Postgate,
         Collection::Threadgate,
         Collection::ListItem,
@@ -114,6 +117,7 @@ impl Collection {
             "app.bsky.feed.like" => Self::Like,
             "app.bsky.feed.repost" => Self::Repost,
             "app.bsky.graph.block" => Self::Block,
+            "app.bsky.graph.follow" => Self::Follow,
             "app.bsky.feed.postgate" => Self::Postgate,
             "app.bsky.feed.threadgate" => Self::Threadgate,
             "app.bsky.graph.listitem" => Self::ListItem,
@@ -136,6 +140,7 @@ impl Collection {
             Self::Like => "app.bsky.feed.like",
             Self::Repost => "app.bsky.feed.repost",
             Self::Block => "app.bsky.graph.block",
+            Self::Follow => "app.bsky.graph.follow",
             Self::Postgate => "app.bsky.feed.postgate",
             Self::Threadgate => "app.bsky.feed.threadgate",
             Self::ListItem => "app.bsky.graph.listitem",

@@ -142,6 +142,7 @@ impl Recorder {
                 Row::Like(_)
                 | Row::Repost(_)
                 | Row::Block(_)
+                | Row::Follow(_)
                 | Row::Postgate(_)
                 | Row::Threadgate(_)
                 | Row::ListItem(_)

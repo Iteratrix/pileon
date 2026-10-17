@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::event::{Collection, Commit, Event, EventKind, Operation};
 use crate::records::{
-    Block, Embed, Facet, FacetFeature, ListBlock, ListItem, Post, PostMinimal, Postgate,
+    AccountEdge, Embed, Facet, FacetFeature, ListBlock, ListItem, Post, PostMinimal, Postgate,
     RecordEmbed, ReplyRef, StrongRef, SubjectRecord, Threadgate, TypedRule,
 };
 
@@ -23,6 +23,8 @@ pub enum Table {
     Reposts,
     /// Account blocks.
     Blocks,
+    /// Follows.
+    Follows,
     /// Quote controls, including detached quotes.
     Postgates,
     /// Reply controls, including hidden replies.
@@ -41,11 +43,12 @@ pub enum Table {
 
 impl Table {
     /// Every table, in a stable order.
-    pub const ALL: [Table; 11] = [
+    pub const ALL: [Table; 12] = [
         Table::Posts,
         Table::Likes,
         Table::Reposts,
         Table::Blocks,
+        Table::Follows,
         Table::Postgates,
         Table::Threadgates,
         Table::ListItems,
@@ -68,6 +71,7 @@ impl Table {
             Self::Likes => "likes",
             Self::Reposts => "reposts",
             Self::Blocks => "blocks",
+            Self::Follows => "follows",
             Self::Postgates => "postgates",
             Self::Threadgates => "threadgates",
             Self::ListItems => "listitems",
@@ -90,7 +94,9 @@ pub enum Row {
     /// See [`Table::Reposts`].
     Repost(SubjectRow),
     /// See [`Table::Blocks`].
-    Block(BlockRow),
+    Block(AccountEdgeRow),
+    /// See [`Table::Follows`].
+    Follow(AccountEdgeRow),
     /// See [`Table::Postgates`].
     Postgate(PostgateRow),
     /// See [`Table::Threadgates`].
@@ -115,6 +121,7 @@ impl Row {
             Self::Like(_) => Table::Likes,
             Self::Repost(_) => Table::Reposts,
             Self::Block(_) => Table::Blocks,
+            Self::Follow(_) => Table::Follows,
             Self::Postgate(_) => Table::Postgates,
             Self::Threadgate(_) => Table::Threadgates,
             Self::ListItem(_) => Table::ListItems,
@@ -131,7 +138,8 @@ impl Row {
             Self::Post(PostRow { header, .. })
             | Self::Like(SubjectRow { header, .. })
             | Self::Repost(SubjectRow { header, .. })
-            | Self::Block(BlockRow { header, .. })
+            | Self::Block(AccountEdgeRow { header, .. })
+            | Self::Follow(AccountEdgeRow { header, .. })
             | Self::Postgate(PostgateRow { header, .. })
             | Self::Threadgate(ThreadgateRow { header, .. })
             | Self::ListItem(ListItemRow { header, .. })
@@ -212,9 +220,9 @@ pub struct SubjectRow {
     pub via: Option<String>,
 }
 
-/// An account block.
+/// A block or follow: one account pointing at another.
 #[derive(Debug, Serialize, PartialEq, Eq)]
-pub struct BlockRow {
+pub struct AccountEdgeRow {
     /// Shared fields.
     #[serde(flatten)]
     pub header: Header,
@@ -223,7 +231,7 @@ pub struct BlockRow {
     /// The client-reported creation time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
-    /// The blocked account.
+    /// The blocked or followed account.
     pub subject: String,
 }
 
@@ -483,17 +491,22 @@ fn map_record(
                 Row::Repost(row)
             }
         }
-        Collection::Block => {
-            let Block {
+        Collection::Block | Collection::Follow => {
+            let AccountEdge {
                 created_at,
                 subject,
             } = parse(json)?;
-            Row::Block(BlockRow {
+            let row = AccountEdgeRow {
                 header,
                 rkey,
                 created_at,
                 subject,
-            })
+            };
+            if *collection == Collection::Block {
+                Row::Block(row)
+            } else {
+                Row::Follow(row)
+            }
         }
         Collection::Postgate => Row::Postgate(postgate_row(parse(json)?, op, rkey, header)),
         Collection::Threadgate => Row::Threadgate(threadgate_row(parse(json)?, op, rkey, header)),
@@ -775,7 +788,13 @@ mod tests {
         };
         assert_eq!(collection, "app.bsky.feed.post");
         assert_eq!(rkey, "3rk");
-        assert_eq!(map("app.bsky.graph.follow", "delete", None), None);
+        let Some(Row::Delete(DeleteRow { collection, .. })) =
+            map("app.bsky.graph.follow", "delete", None)
+        else {
+            panic!("follow deletes are unfollows and must be kept");
+        };
+        assert_eq!(collection, "app.bsky.graph.follow");
+        assert_eq!(map("app.bsky.actor.profile", "delete", None), None);
         assert_eq!(
             map(
                 "app.bsky.actor.profile",
@@ -856,7 +875,7 @@ mod tests {
 
     #[test]
     fn block_list_item_and_list_block_rows() {
-        let Some(Row::Block(BlockRow { subject, .. })) = map(
+        let Some(Row::Block(AccountEdgeRow { subject, .. })) = map(
             "app.bsky.graph.block",
             "create",
             Some(r#"{"subject":"did:plc:b","createdAt":"x"}"#),
@@ -864,6 +883,14 @@ mod tests {
             panic!("expected a block");
         };
         assert_eq!(subject, "did:plc:b");
+        let Some(Row::Follow(AccountEdgeRow { subject, .. })) = map(
+            "app.bsky.graph.follow",
+            "create",
+            Some(r#"{"$type":"app.bsky.graph.follow","subject":"did:plc:f","createdAt":"x"}"#),
+        ) else {
+            panic!("expected a follow");
+        };
+        assert_eq!(subject, "did:plc:f");
         let Some(Row::ListItem(ListItemRow { list, subject, .. })) = map(
             "app.bsky.graph.listitem",
             "create",

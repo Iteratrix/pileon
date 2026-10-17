@@ -88,15 +88,22 @@ Spacedust (`wantedSubjectDids`) but should run on our own tail in production.
 
 - **Live:** `pileon-recorder.service` tails `jetstream.us-west.bsky.network`
   into `data/jetstream/live/`. True first recorded seq 27068492305
-  (2026-10-17 00:48 UTC). Keeps every like (~1 GB/day); a 14-day prune to
-  likes-on-quote-posts is still to be built (first partitions turn 14 days old
-  on 2026-10-30). Total ~1.4 GB/day compressed.
+  (2026-10-17 00:48 UTC); follows were added at seq 27069071413 (01:10 UTC).
+  Keeps every like (~1 GB/day); a 14-day prune to likes-on-quote-posts is still
+  to be built (first partitions turn 14 days old on 2026-10-30). Total
+  ~1.5 GB/day compressed with follows (~0.13 GB/day of it).
 - **Replay:** `pileon-replay.service` backfills the archive's live era, seq
-  (24385886263, 27068492304]: from the end of the bootstrap (segment 6887,
-  2026-08-05 15:41 UTC) to just before live capture. Likes kept only on quote
-  posts (`--likes on-quotes`). Quota-bound (~33 h at 2 MB/s); exits 3 at the
-  sealed tip and systemd reruns it every 10 min until the window is done.
-  Expected ~32 GB on disk.
+  (24385886263, 27069071412]: from the end of the bootstrap (segment 6887,
+  2026-08-05 15:41 UTC) to just before live follow capture. Likes kept only on
+  quote posts (`--likes on-quotes`). Quota-bound (~33 h at 2 MB/s, restarted
+  with follows 2026-10-17 01:11 UTC); exits 3 at the sealed tip and systemd
+  reruns it every 10 min until the window is done. Expected ~50 GB on disk.
+- **Overlap:** for every table except follows, seqs 27068492305..27069071412
+  are in both roots. Same host, same seq, same mapping: always dedup on `seq`
+  when unioning `live` and `replay`.
+- **Follow graph before August:** not recorded; pull per incident with AppView
+  `getRelationships` (the follow record's rkey is a TID, so it dates the
+  follow). A full graph snapshot would mean scanning the 1.84 TB bootstrap.
 - Both use us-west only. Hosts have separate seq spaces (us-east was rebuilt
   2026-10-02..06); never mix them. `state.json` records the host and refuses a
   mismatch.
@@ -109,6 +116,9 @@ Spacedust (`wantedSubjectDids`) but should run on our own tail in production.
 Row format: one JSON object per line, `seq` (dedup key: delivery is
 at-least-once), `ts` (witness time, microseconds), `did`, then table fields.
 Posts carry `parent`, `root`, `quote`, `mentions`, `langs`, never text.
+Follows and blocks carry `subject` (a DID). A delete carries only `collection`
+and `rkey`; join it to the create row to recover the subject (unfollows,
+unblocks).
 `created_at` is client-controlled (values from 2002 and odd offsets occur);
 2026-08-24 was a relay catch-up day, so `ts` there is late. Prefer
 `created_at` when it falls within a sane window of `ts`, else `ts`. Query the
