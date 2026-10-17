@@ -59,6 +59,14 @@ nothing that names the study's amplifier or targets belongs in tracked files.
      postgates carry `detached` URIs and `quotes_disabled` with times, so
      targets' real detaches are the natural experiment. A reply filter by
      text label was proposed and parked.
+
+   Owner's direction (2026-10-17): the production system relies entirely on
+   non-sentiment proxies (structure, approval, graph, timing). Text labels
+   (local labelers, judges) exist only to validate those signals across
+   many pile-ons in the jetstream. So a labeler is chosen for low
+   systematic bias on the data it validates (network-wide surges), at the
+   surge level, not for speed or deployability; its errors become the
+   validation's errors.
 2. Productionize some or all of the above. Rust core (pure, no I/O, `Fetch`
    trait, like `../bluesky-crawler`); research stays in Python (`lab/`).
 
