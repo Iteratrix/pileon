@@ -10,11 +10,26 @@ dependencies = [
 
 [dependency-groups]
 dev = ["hypothesis", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "ruff"]
+# Off-the-shelf sentiment/toxicity baselines, CPU only: `uv sync --group baselines`.
+baselines = ["torch", "transformers", "sentencepiece", "protobuf"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.mypy]
 strict = true
 warn_unused_configs = true
 show_error_codes = true
+
+[[tool.mypy.overrides]]
+# Optional `baselines` group; absent in CI.
+module = ["torch", "torch.*", "transformers", "transformers.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py312"
