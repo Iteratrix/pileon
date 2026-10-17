@@ -4,3 +4,4 @@ __pycache__/
 target/
 data/
 *.key
+node_modules/

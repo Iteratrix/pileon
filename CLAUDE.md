@@ -36,6 +36,16 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
 
 ## Layout
 
+- `crates/pileon-core/` - pure Rust: Jetstream event parsing (live frame and
+  replay SDK line into one `Event`) and the event-to-row mapping. Detector
+  code goes here too, so ingest and detection share one model.
+- `crates/pileon-recorder/` - `pileon-recorder` binary: `live` (WebSocket
+  tail) and `ingest` (SDK JSON lines on stdin), hourly zstd JSONL partitions,
+  `state.json` cursor, disk floor (exit 75).
+- `replay/` - `replay.mjs`, the one-shot archive replay driving the official
+  `@bsky/jetstream` SDK (pinned 1.0.0); pipes into `pileon-recorder ingest`.
+- `deploy/` - systemd user units (`pileon-recorder.service`,
+  `pileon-replay.service`); installed copies live in `~/.config/systemd/user/`.
 - The private study lives outside the repository.
 
 ## Data sources (verified 2026-10-16)
@@ -49,10 +59,13 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   and then capturing live (segment 0 starts ~2026-07-28). Backfilled records are
   stamped with witness time, so use `createdAt`/rkey TIDs for real times; only
   the post-launch segments are in time order. HTTP `planSnapshot` /
-  `getSegment` / `getBlock` need an API key (bsky.network/account) and are
-  metered in downloaded bytes (quota not published). Compaction **physically
-  removes deleted records**, so the archive has survivorship bias. Replies whose
-  parent no longer resolves still reveal deleted target posts.
+  `getSegment` / `getBlock` need an API key (bsky.network/account; ours is
+  `~/.config/pileon/jetstream.key`, mode 600) and are metered in downloaded
+  bytes: 1 GB burst, 2 MB/s refill (~173 GB/day). Collection filtering in plans
+  saves almost nothing (posts-only ~= the whole archive). Archive on
+  2026-10-16: 2.08 TB, 26.4B events; live era 237 GB / 2.29B events. Compaction
+  **physically removes deleted records**, so the archive has survivorship bias.
+  Replies whose parent no longer resolves still reveal deleted target posts.
 - **Constellation** (constellation.microcosm.blue): backlink index (who
   replied/quoted/liked/reposted a target, counts, distinct DIDs); API marked
   unstable; drops deleted records. Client in `studies/qp-pileon/src/qp_pileon/constellation.py`.
@@ -65,6 +78,50 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
 Measured live volume (100 s sample, Fri 16:53 PDT), per day: 3.1M posts
 (1.5M replies, 0.25M quotes), 20M likes, 3.5M reposts, 2.6M follows, 0.34M
 blocks, 0.1M postgates; ~20 GB/day raw JSON across those collections.
+
+## Recording (started 2026-10-16)
+
+Decided after two independent reviews (Opus 5.5 and Fable, both
+"agree-with-changes"): a corpus is needed for unseeded discovery (1) and the
+labeler (1b); 1a hydrates per incident on demand; 1c can prototype on microcosm
+Spacedust (`wantedSubjectDids`) but should run on our own tail in production.
+
+- **Live:** `pileon-recorder.service` tails `jetstream.us-west.bsky.network`
+  into `data/jetstream/live/`. True first recorded seq 27068492305
+  (2026-10-17 00:48 UTC). Keeps every like (~1 GB/day); a 14-day prune to
+  likes-on-quote-posts is still to be built (first partitions turn 14 days old
+  on 2026-10-30). Total ~1.4 GB/day compressed.
+- **Replay:** `pileon-replay.service` backfills the archive's live era, seq
+  (24385886263, 27068492304]: from the end of the bootstrap (segment 6887,
+  2026-08-05 15:41 UTC) to just before live capture. Likes kept only on quote
+  posts (`--likes on-quotes`). Quota-bound (~33 h at 2 MB/s); exits 3 at the
+  sealed tip and systemd reruns it every 10 min until the window is done.
+  Expected ~32 GB on disk.
+- Both use us-west only. Hosts have separate seq spaces (us-east was rebuilt
+  2026-10-02..06); never mix them. `state.json` records the host and refuses a
+  mismatch.
+- Not covered: live events from 2026-08-04 13:13 to 2026-08-05 15:41 UTC (merged
+  into the bootstrap as current state, so their deletes and timing are gone),
+  and anything before August except via per-account history (PDS `listRecords`,
+  free; account-filtered archive plans cost ~0.3 MB per event and are not
+  cheap).
+
+Row format: one JSON object per line, `seq` (dedup key: delivery is
+at-least-once), `ts` (witness time, microseconds), `did`, then table fields.
+Posts carry `parent`, `root`, `quote`, `mentions`, `langs`, never text.
+`created_at` is client-controlled (values from 2002 and odd offsets occur);
+2026-08-24 was a relay catch-up day, so `ts` there is late. Prefer
+`created_at` when it falls within a sane window of `ts`, else `ts`. Query the
+sealed partitions with DuckDB:
+
+```sql
+SELECT count(*) FROM read_json('data/jetstream/*/posts/*/*.jsonl.zst',
+  format='newline_delimited', union_by_name=true);
+```
+
+Operations: `journalctl --user -u pileon-recorder -f` (a stats line per
+minute), `systemctl --user status pileon-replay`, progress in each root's
+`state.json`. Machine-level changes are logged in `~/.claude/SYSTEM.md`.
 
 ## Constraints
 

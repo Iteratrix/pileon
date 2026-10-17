@@ -1,0 +1,18 @@
+[Unit]
+Description=pileon-replay: one-shot backfill of the Jetstream us-west live era (2026-08-05 to live start)
+Documentation=https://github.com/Iteratrix/pileon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=NODE=%h/.local/share/fnm/aliases/default/bin/node
+# Window: after the end of the archive bootstrap (segment 6887) through the
+# event just before the live recorder's first_seq (27068492305).
+ExecStart=/bin/bash -o pipefail -c '"$NODE" %h/Projects/pileon/replay/replay.mjs --after 24385886263 --before 27068492304 --state %h/Projects/pileon/data/jetstream/replay/state.json | %h/.cargo/bin/pileon-recorder ingest --root %h/Projects/pileon/data/jetstream/replay --host jetstream.us-west.bsky.network --likes on-quotes --min-free-gib 20'
+# 3 = caught up to the sealed tip before the window end: retry later.
+Restart=on-failure
+RestartSec=600
+# 75 = free disk below the floor: stop instead of looping.
+RestartPreventExitStatus=75
+Nice=10
+TimeoutStopSec=120

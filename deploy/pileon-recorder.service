@@ -1,0 +1,18 @@
+[Unit]
+Description=pileon-recorder: Bluesky interaction edges from the Jetstream us-west live tail
+Documentation=https://github.com/Iteratrix/pileon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.cargo/bin/pileon-recorder live --root %h/Projects/pileon/data/jetstream/live --host jetstream.us-west.bsky.network --likes all --min-free-gib 20
+Environment=RUST_LOG=info
+Restart=always
+RestartSec=10
+# 75 = free disk below the floor: stop instead of looping.
+RestartPreventExitStatus=75
+Nice=5
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,10 @@
+{
+  "name": "pileon-replay",
+  "private": true,
+  "type": "module",
+  "description": "Streams the Jetstream v2 archive to pileon-recorder ingest as JSON lines",
+  "engines": { "node": ">=22.15" },
+  "dependencies": {
+    "@bsky/jetstream": "1.0.0"
+  }
+}
