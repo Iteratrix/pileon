@@ -84,7 +84,13 @@ process.stdout.on('error', (err) => {
   process.exit(err.code === 'EPIPE' ? 0 : 1)
 })
 
-const dropBinary = (_, value) => (value instanceof Uint8Array ? undefined : value)
+const jsonSafe = (_, value) => {
+  if (value instanceof Uint8Array) return undefined
+  if (typeof value === 'bigint') {
+    return Number.isSafeInteger(Number(value)) ? Number(value) : value.toString()
+  }
+  return value
+}
 const span = target - after
 const started = Date.now()
 let lastLog = started
@@ -93,7 +99,7 @@ let seq = after
 console.error(`replaying ${args.host} seq (${after}, ${target}] of (${after}, ${before}]`)
 const jetstream = new Jetstream({ service, apiKey })
 for await (const evt of jetstream.snapshot({ collections: COLLECTIONS, afterSeq: after, beforeSeq: target })) {
-  if (!process.stdout.write(`${JSON.stringify(evt, dropBinary)}\n`)) {
+  if (!process.stdout.write(`${JSON.stringify(evt, jsonSafe)}\n`)) {
     await once(process.stdout, 'drain')
   }
   events += 1
