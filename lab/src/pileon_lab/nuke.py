@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING
 from pileon_lab.enrich import LIKER_PAGES, arrivals, usable
 from pileon_lab.features import followed_before
 from pileon_lab.fetch import Cache, Fetcher
+from pileon_lab.network import labeled_incident, labeled_sample
 from pileon_lab.sources import Likers, Relationship, likers, relationships
 from pileon_lab.study import load_incidents
 from pileon_lab.sweep import surge_class
@@ -313,7 +314,14 @@ async def gather(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--study-db", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--study-db", type=Path)
+    source.add_argument("--surges", type=Path, help="network surges (with --labels)")
+    parser.add_argument("--labels", type=Path)
+    parser.add_argument("--labeler", default="llama3.3:70b+v2")
+    parser.add_argument("--sample-size", type=int, default=500)
+    parser.add_argument("--seed", type=int, default=20261017)
+    parser.add_argument("--include-warmup", action="store_true")
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--features", type=Path, required=True)
     parser.add_argument("--min-labeled", type=int, default=10)
@@ -335,9 +343,23 @@ def main(argv: list[str] | None = None) -> int:
         for r in rows
     }
     followers = {r["incident_id"]: r.get("amplifier_followers") for r in rows}
+    if args.surges is not None:
+        if args.labels is None:
+            parser.error("--surges needs --labels")
+        surges, labels, directions = labeled_sample(
+            args.surges,
+            args.labels,
+            args.labeler,
+            size=args.sample_size,
+            seed=args.seed,
+            include_warmup=args.include_warmup,
+        )
+        loaded = [labeled_incident(s, labels, directions, {}) for s in surges]
+    else:
+        loaded = usable(load_incidents(args.study_db))
     incidents = [
         i
-        for i in usable(load_incidents(args.study_db))
+        for i in loaded
         if i.incident_id in classes and i.dunk_uris and i.amplifier_did
     ]
 

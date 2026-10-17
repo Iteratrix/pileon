@@ -46,6 +46,29 @@ def labeled_incident(
     )
 
 
+def labeled_sample(  # noqa: PLR0913 - mirrors the labeler CLI
+    surges_path: Path,
+    labels_path: Path,
+    labeler: str,
+    *,
+    size: int,
+    seed: int,
+    include_warmup: bool = False,
+) -> tuple[list[SurgeRecord], dict[str, str], dict[str, str]]:
+    """The labeler's surge sample with its labels and directions."""
+    surges = sample(
+        list(read_surges(surges_path)),
+        size=size,
+        seed=seed,
+        include_warmup=include_warmup,
+    )
+    store = LabelStore(labels_path)
+    try:
+        return surges, store.labeled(labeler), store.directed(labeler)
+    finally:
+        store.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--surges", type=Path, required=True)
@@ -59,16 +82,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
-    surges = sample(
-        list(read_surges(args.surges)),
+    surges, labels, directions = labeled_sample(
+        args.surges,
+        args.labels,
+        args.labeler,
         size=args.sample_size,
         seed=args.seed,
         include_warmup=args.include_warmup,
     )
-    store = LabelStore(args.labels)
-    labels = store.labeled(args.labeler)
-    directions = store.directed(args.labeler)
-    store.close()
     print(f"{len(surges)} surges; {len(labels)} labeled items", file=sys.stderr)
 
     async def run() -> list[dict[str, object]]:
