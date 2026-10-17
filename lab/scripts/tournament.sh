@@ -23,7 +23,7 @@ CANDIDATES=(
   "qwen3.6:35b-a3b v2" "qwen3.6:35b-a3b contrast" "qwen3.6:35b-a3b reason"
   "gemma4:31b v2" "gemma4:31b contrast"
   "mistral-small3.1:24b v2" "qwen3:32b v2" "llama3.3:70b v2"
-  "qwen3.8:27b-mlx v2" "nemotron-3.5-lightning v2"
+  "qwen3.8:27b-mlx v2" "nemotron-3.5-lightning v2" "nemotron-3.5-bolt v2"
 )
 ITEMS="$(grep -c . "$DIR/packet.jsonl")"
 
