@@ -50,6 +50,19 @@ def arrivals(incident: Incident) -> list[str]:
     return sorted({r.author for r in incident.responses})
 
 
+def incident_posts(incidents: Iterable[Incident]) -> list[str]:
+    """Every target and dunk post, in one fixed order.
+
+    The cache is keyed by URL and posts are fetched in batches, so enrichment
+    and analysis must request exactly this list to hit the same batches.
+    """
+    posts = set()
+    for incident in incidents:
+        posts.add(incident.target_post_uri)
+        posts.update(incident.dunk_uris)
+    return sorted(posts)
+
+
 class Progress:
     def __init__(self, fetcher: Fetcher, stage: str, total: int) -> None:
         self._fetcher = fetcher
@@ -94,11 +107,9 @@ async def enrich(
     incidents: list[Incident], fetcher: Fetcher, *, concurrency: int = 12
 ) -> None:
     """Run every stage over `incidents`."""
-    posts = {i.target_post_uri for i in incidents} | {
-        uri for i in incidents for uri in i.dunk_uris
-    }
+    posts = incident_posts(incidents)
     print(f"[posts] {len(posts)} target and dunk posts", file=sys.stderr)
-    await post_counts(fetcher, sorted(posts))
+    await post_counts(fetcher, posts)
 
     targets_by_amplifier: dict[str, set[str]] = defaultdict(set)
     arrivals_by_amplifier: dict[str, set[str]] = defaultdict(set)

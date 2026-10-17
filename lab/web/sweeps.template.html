@@ -252,6 +252,14 @@ code { font-family: var(--mono); font-size: 0.92em; }
     if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + "K";
     return String(Math.round(n));
   };
+  const tickPct = (v) => (Math.round(v * 1000) / 10).toString().replace(/\.0$/, "") + "%";
+  // Axis steps that land on round percentages, at most five intervals.
+  const niceMax = (v) => {
+    const step = [0.02, 0.05, 0.1, 0.2, 0.25].find((st) => v / st <= 5) || 0.25;
+    return { step, max: Math.max(step, Math.ceil(v / step - 1e-9) * step) };
+  };
+  // The absolute arrival count is a benchmark, never the default subject.
+  const BENCHMARKS = new Set(["arrivals"]);
   const pct = (v) => (v == null || Number.isNaN(v) ? "—" : (v < 0.1 && v > 0 ? (v * 100).toFixed(1) : Math.round(v * 100)) + "%");
   const fmt = (dim, v) => {
     if (v == null || Number.isNaN(v)) return "—";
@@ -440,10 +448,11 @@ code { font-family: var(--mono); font-size: 0.92em; }
     const x0 = labelW, x1 = width - rightPad;
     const xs = (v) => x0 + ((v - (0.5 - spread)) / (2 * spread)) * (x1 - x0);
     const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Separation strength per dimension" }, box);
-    const ticks = [0.5 - spread, 0.5 - spread / 2, 0.5, 0.5 + spread / 2, 0.5 + spread];
+    const ticks = [];
+    for (let t = Math.ceil((0.5 - spread) * 10 - 1e-9); t <= Math.floor((0.5 + spread) * 10 + 1e-9); t++) ticks.push(t / 10);
     ticks.forEach((t) => {
       el("line", { x1: xs(t), x2: xs(t), y1: top, y2: height - bottom, stroke: t === 0.5 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 }, svg);
-      text(svg, xs(t), height - bottom + 16, t.toFixed(2), { "text-anchor": "middle" });
+      if (ticks.length <= 6 || Math.round(t * 10) % 2 === 1) text(svg, xs(t), height - bottom + 16, t.toFixed(1), { "text-anchor": "middle" });
     });
     text(svg, xs(0.5), height - 2, "0.5 = chance", { "text-anchor": "middle", "font-size": 10.5 });
     const chosen = ranked.findIndex((d) => d.dim === state.dim);
@@ -485,7 +494,10 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
   function renderOne(rows, ranked) {
     const select = $("dim");
-    if (!state.dim || !DIMS.includes(state.dim)) state.dim = ranked[0] ? ranked[0].dim : DIMS[0];
+    if (!state.dim || !DIMS.includes(state.dim)) {
+      const lead = ranked.find((d) => !BENCHMARKS.has(d.dim));
+      state.dim = lead ? lead.dim : DIMS[0];
+    }
     select.replaceChildren(...DIMS.map((d) => { const o = document.createElement("option"); o.value = d; o.textContent = SHORT[d]; o.selected = d === state.dim; return o; }));
     const dim = state.dim;
     const scored = ranked.find((d) => d.dim === dim);
@@ -512,13 +524,13 @@ code { font-family: var(--mono); font-size: 0.92em; }
     const width = binsBox.clientWidth || 560;
     const left = 40, right = 8, top = 18, bottom = 42;
     const height = 240;
-    const ymax = Math.max(0.1, Math.ceil(Math.max(base, ...bins.map((b) => b.rate)) * 10) / 10);
+    const { step: ystep, max: ymax } = niceMax(Math.max(base, ...bins.map((b) => b.rate)));
     const ys = (v) => top + (1 - v / ymax) * (height - top - bottom);
     const band = (width - left - right) / bins.length;
     const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `Pile-on rate by ${SHORT[dim]}` }, binsBox);
-    for (let t = 0; t <= ymax + 1e-9; t += ymax / 4) {
+    for (let t = 0; t <= ymax + 1e-9; t += ystep) {
       el("line", { x1: left, x2: width - right, y1: ys(t), y2: ys(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg);
-      text(svg, left - 6, ys(t) + 4, pct(t), { "text-anchor": "end" });
+      text(svg, left - 6, ys(t) + 4, tickPct(t), { "text-anchor": "end" });
     }
     const best = bins.reduce((m, b) => (b.rate > m.rate ? b : m), bins[0]);
     const every = band < 48 ? 2 : 1;
@@ -537,7 +549,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
       hoverable(hit, `${pct(b.rate)} pile-ons`, [`${SHORT[dim]}: ${binLabel(dim, b)}`, `${b.pos} of ${b.n} incidents`]);
     });
     el("line", { x1: left, x2: width - right, y1: ys(base), y2: ys(base), stroke: "var(--ink-2)", "stroke-width": 1, opacity: 0.6 }, svg);
-    text(svg, width - right, ys(base) - 5, `all: ${pct(base)}`, { "text-anchor": "end", fill: "var(--ink-2)" });
+    const labelLeft = bins[0].rate <= bins[bins.length - 1].rate;
+    text(svg, labelLeft ? left + 4 : width - right - 4, ys(base) - 5, `all incidents: ${pct(base)}`, { "text-anchor": labelLeft ? "start" : "end", fill: "var(--ink-2)" });
     text(svg, left, height - 6, `${SHORT[dim]}, in ten equal-count bins (faded bars fall outside the dial)`, { "font-size": 10.5 });
 
     const pts = [];
@@ -552,11 +565,11 @@ code { font-family: var(--mono); font-size: 0.92em; }
     const svg2 = el("svg", { viewBox: `0 0 ${pw} ${ph}`, role: "img", "aria-label": "Precision against recall as the dial moves" }, prBox);
     [0, 0.25, 0.5, 0.75, 1].forEach((t) => {
       el("line", { x1: pl, x2: pw - pr, y1: py(t), y2: py(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg2);
-      text(svg2, pl - 6, py(t) + 4, pct(t), { "text-anchor": "end" });
-      text(svg2, px(t), ph - pb + 16, pct(t), { "text-anchor": "middle" });
+      text(svg2, pl - 6, py(t) + 4, tickPct(t), { "text-anchor": "end" });
+      text(svg2, px(t), ph - pb + 16, tickPct(t), { "text-anchor": "middle" });
     });
     el("line", { x1: pl, x2: pw - pr, y1: py(base), y2: py(base), stroke: "var(--ink-2)", opacity: 0.6 }, svg2);
-    text(svg2, pw - pr, py(base) - 5, "chance", { "text-anchor": "end", fill: "var(--ink-2)" });
+    text(svg2, pl + 4, py(base) - 5, "chance", { "fill": "var(--ink-2)" });
     el("path", { d: pts.map((q, i) => `${i ? "L" : "M"}${px(q.recall)},${py(q.precision)}`).join(""), fill: "none", stroke: "var(--blue)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg2);
     el("circle", { cx: px(cur.recall), cy: py(cur.precision), r: 5, fill: "var(--blue)", stroke: "var(--surface)", "stroke-width": 2 }, svg2);
     text(svg2, pl, ph - 6, "pile-ons flagged (recall) →", { "font-size": 10.5 });
@@ -580,7 +593,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
   }
 
   function renderTwo(rows, ranked) {
-    const numeric = ranked.filter((d) => KIND[d.dim] !== "bool").map((d) => d.dim);
+    const numeric = ranked.filter((d) => KIND[d.dim] !== "bool" && !BENCHMARKS.has(d.dim)).map((d) => d.dim);
     if (!state.dimx || !DIMS.includes(state.dimx)) state.dimx = numeric[0] || DIMS[0];
     if (!state.dimy || !DIMS.includes(state.dimy) || state.dimy === state.dimx) state.dimy = numeric.find((d) => d !== state.dimx) || DIMS[1];
     for (const [id, key] of [["dimx", "dimx"], ["dimy", "dimy"]]) {
@@ -657,7 +670,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Contempt share by arrival group" }, box);
     [0, xmax / 2, xmax].forEach((t) => {
       el("line", { x1: xs(t), x2: xs(t), y1: top, y2: height - 24, stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg);
-      text(svg, xs(t), height - 8, pct(t), { "text-anchor": "middle" });
+      text(svg, xs(t), height - 8, tickPct(t), { "text-anchor": "middle" });
     });
     groups.forEach(([, label], i) => {
       const y = top + i * rowH;

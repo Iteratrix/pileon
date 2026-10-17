@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pileon_lab.enrich import BASELINE_POSTS, arrivals, usable
+from pileon_lab.enrich import BASELINE_POSTS, arrivals, incident_posts, usable
 from pileon_lab.fetch import Cache, Fetcher
 from pileon_lab.sources import (
     PostCounts,
@@ -386,7 +386,7 @@ async def assemble(
     incidents: list[Incident], fetcher: Fetcher, pre: dict[str, int]
 ) -> list[Row]:
     """Build every feature row from cached facts."""
-    targets = await post_counts(fetcher, [i.target_post_uri for i in incidents])
+    targets = await post_counts(fetcher, incident_posts(incidents))
     amplifiers = sorted({i.amplifier_did for i in incidents})
     followers = await profile_counts(fetcher, amplifiers)
     allies: dict[str, dict[str, Relationship]] = {}
