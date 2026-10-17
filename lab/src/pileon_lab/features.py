@@ -171,7 +171,12 @@ def composition(
     to_target: dict[str, Relationship],
     to_amplifier: dict[str, Relationship],
 ) -> Composition:
-    """Describe who showed up: target allies, the quoter's audience, or neither."""
+    """Describe who showed up: target allies, the quoter's audience, or neither.
+
+    With no known amplifier (no quote of the target's post), audience shares
+    are `None` and nobody is counted as the quoter's audience.
+    """
+    has_amplifier = bool(incident.amplifier_did)
     first = first_arrivals(incident.responses)
     anchor = incident.anchor
     resolved = follow_target = target_follows = 0
@@ -180,12 +185,14 @@ def composition(
     for author in first:
         target_rel = to_target.get(author)
         amp_rel = to_amplifier.get(author)
-        if target_rel is None or amp_rel is None or not target_rel.resolved:
+        if target_rel is None or not target_rel.resolved:
+            continue
+        if has_amplifier and amp_rel is None:
             continue
         resolved += 1
         fan = followed_before(target_rel.follows_actor, anchor) is True
         friend = target_rel.actor_follows is not None
-        audience = followed_before(amp_rel.follows_actor, anchor)
+        audience = followed_before(amp_rel.follows_actor, anchor) if amp_rel else None
         follow_target += fan
         target_follows += friend
         follow_amp += audience is True
@@ -216,8 +223,10 @@ def composition(
         resolved=resolved,
         follow_target=share(follow_target, resolved),
         target_follows=share(target_follows, resolved),
-        follow_amplifier=share(follow_amp, resolved),
-        follow_amplifier_after=share(follow_amp_after, resolved),
+        follow_amplifier=share(follow_amp, resolved) if has_amplifier else None,
+        follow_amplifier_after=(
+            share(follow_amp_after, resolved) if has_amplifier else None
+        ),
         strangers_to_both=share(strangers, resolved),
         within_15m=share(sum(d <= timedelta(minutes=15) for d in within), len(within)),
         within_1h=share(sum(d <= timedelta(hours=1) for d in within), len(within)),
@@ -523,7 +532,7 @@ async def assemble(
     """Build every feature row from cached facts."""
     targets = await post_counts(fetcher, incident_posts(incidents))
     response_counts = await post_counts(fetcher, response_posts(incidents))
-    amplifiers = sorted({i.amplifier_did for i in incidents})
+    amplifiers = sorted({i.amplifier_did for i in incidents if i.amplifier_did})
     followers = await profile_counts(fetcher, amplifiers)
     allies: dict[str, dict[str, Relationship]] = {}
     audiences: dict[str, dict[str, Relationship]] = {}
@@ -572,9 +581,9 @@ async def assemble(
                 incident,
                 target_post=target_post,
                 history=history,
-                ally=allies[incident.amplifier_did].get(incident.target_did),
+                ally=allies.get(incident.amplifier_did, {}).get(incident.target_did),
                 to_target=to_target,
-                to_amplifier=audiences[incident.amplifier_did],
+                to_amplifier=audiences.get(incident.amplifier_did, {}),
                 amplifier_followers=followers.get(incident.amplifier_did),
                 pre_arrivals=pre.get(incident.incident_id),
                 likes=signals,

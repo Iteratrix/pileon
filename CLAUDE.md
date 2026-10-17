@@ -221,6 +221,34 @@ surge drew a median of 16 distinct responders to the quoted post in 48 h;
 those not detected drew a median of 2. Next: rerun on the full replay, then
 classify surges (pile-on / rally / crossfire / spotlight) in the lab.
 
+## Stage C runbook: classifying network surges
+
+All in `lab/`, against `data/surges/<run>.jsonl.zst` from `pileon-detect`.
+The local labeler runs on muse-mini (`ssh muse-mini`, Ollama, idle otherwise
+except for the Muse project); open a tunnel first:
+`ssh -N -L 11435:localhost:11434 muse-mini &`.
+
+1. Label a sample: `uv run python -m pileon_lab.label --surges S --cache
+   ../data/lab/cache.db --labels ../data/lab/labels.db --sample-size 500
+   --per-surge 30` (stratified by size, warm-up excluded; ~2 s/item with
+   `qwen3.5:27b-mlx`, so 15k items is ~9 h; resumable).
+2. Features: `uv run python -m pileon_lab.network --surges S --cache ...
+   --labels ... --enrich --out ../data/lab/network-features.jsonl` (same
+   sample/seed), then `pileon_lab.sweep --features ... --template
+   web/sweeps.template.html --page ... --corpus-note "..."`.
+3. Gold and hill-climbing: `pileon_lab.evalset packet --surges S --cache ...
+   --labels ... --size 300 --dir ../data/lab/eval-net`; run the two judge
+   agents on `packet.jsonl` (outputs `opus.jsonl`, `fable.jsonl`, blind, same
+   rules as the study calibration); `evalset run --dir ... --model M
+   [--variant V]` for each candidate; `evalset score --dir ...` (dev split)
+   ranks them against judge consensus. Candidates must also not regress on
+   the human gold: `evalset run --dir ../data/lab/judges --model M` then
+   `pileon_lab.judges score` on the study packet. Read `--split test` only
+   for the final choice. Prompt variants live in `evalset.VARIANTS`.
+
+Hydrated post text sits only in the response cache (`data/lab/cache.db`);
+purge it after labeling runs if retention matters.
+
 ## Findings
 
 Results so far come from the private study and are kept in

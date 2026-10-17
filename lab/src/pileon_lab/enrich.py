@@ -125,6 +125,8 @@ async def enrich(
     targets_by_amplifier: dict[str, set[str]] = defaultdict(set)
     arrivals_by_amplifier: dict[str, set[str]] = defaultdict(set)
     for incident in incidents:
+        if not incident.amplifier_did:
+            continue
         targets_by_amplifier[incident.amplifier_did].add(incident.target_did)
         arrivals_by_amplifier[incident.amplifier_did].update(arrivals(incident))
     await profile_counts(fetcher, sorted(targets_by_amplifier))

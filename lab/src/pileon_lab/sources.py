@@ -33,6 +33,7 @@ class PostCounts:
     likes: int
     quotes: int
     reposts: int
+    text: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +62,7 @@ def _counts(post: dict[str, Any]) -> PostCounts:
         likes=post.get("likeCount", 0),
         quotes=post.get("quoteCount", 0),
         reposts=post.get("repostCount", 0),
+        text=record.get("text", "") if isinstance(record.get("text"), str) else "",
     )
 
 
@@ -154,8 +156,14 @@ async def post_uris_before(
     return uris[:limit]
 
 
-async def profile_counts(fetcher: Fetcher, dids: list[str]) -> dict[str, int]:
-    """Return current follower counts for each DID that still resolves."""
+@dataclass(frozen=True, slots=True)
+class Profile:
+    handle: str
+    followers: int
+
+
+async def profiles(fetcher: Fetcher, dids: list[str]) -> dict[str, Profile]:
+    """Return handle and current follower count for each DID that resolves."""
     unique = sorted(set(dids))
     batches = [
         unique[i : i + _PROFILES_BATCH] for i in range(0, len(unique), _PROFILES_BATCH)
@@ -169,10 +177,17 @@ async def profile_counts(fetcher: Fetcher, dids: list[str]) -> dict[str, int]:
         )
     )
     return {
-        profile["did"]: profile.get("followersCount", 0)
+        profile["did"]: Profile(
+            handle=profile.get("handle", ""), followers=profile.get("followersCount", 0)
+        )
         for response in replies
         for profile in (response.body or {}).get("profiles", [])
     }
+
+
+async def profile_counts(fetcher: Fetcher, dids: list[str]) -> dict[str, int]:
+    """Return current follower counts for each DID that still resolves."""
+    return {did: p.followers for did, p in (await profiles(fetcher, dids)).items()}
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,6 +8,9 @@ judges must see exactly this text, so it lives in one place.
 
 from __future__ import annotations
 
+import json
+import re
+
 V2_LABELS = ("supportive", "neutral", "critical", "hostile", "abusive")
 GOLD_LABELS = ("supportive", "neutral", "critical", "hostile")
 """The four-point human gold scale, ordered low to high hostility."""
@@ -77,3 +80,78 @@ def to_gold(label: str, *, mapping: str = "B") -> str:
     if label == "hostile":
         return "hostile" if mapping == "B" else "critical"
     return label
+
+
+DIRECTIONS = ("author", "third_party", "unclear")
+
+DIRECTION_PROMPT = (
+    "A Bluesky post by @{handle} received the reply below. The reply has "
+    "been flagged as abusive. Your ONLY job is to decide who the abuse is "
+    "aimed at:\n"
+    "- author: @{handle}, the person who wrote the original post\n"
+    "- third_party: someone else - a person mentioned, quoted, or depicted "
+    "in the original post (e.g. the subject of a news story or clip)\n"
+    "- unclear: cannot tell\n\n"
+    "Original post by @{handle}:\n{target_post}\n\n"
+    "Reply:\n{text}\n\n"
+    'Respond with ONLY JSON: {{"direction": "author"|"third_party"|"unclear"}}'
+)
+
+
+def valence_prompt(handle: str, text: str, *, target_post: str, framing: str) -> str:
+    """The v2 prompt with context: the amplifier's framing and the target post.
+
+    Without the target post, labels flip on two in five items, so context is
+    always supplied when it exists.
+    """
+    base = PROMPT_V2.replace("{target}", handle or "unknown").replace("{text}", text)
+    context = ""
+    if framing.strip():
+        context += f"\nThe prominent account's framing: {framing}"
+    if target_post.strip():
+        context += f"\nWhat @{handle or 'unknown'} (the TARGET) said: {target_post}"
+    marker = "\nTARGET: @"
+    head, _, tail = base.partition(marker)
+    return f"{head}{context}{marker}{tail}"
+
+
+def direction_prompt(handle: str, text: str, *, target_post: str) -> str:
+    """Asks who a hostile or abusive reply is aimed at."""
+    return (
+        DIRECTION_PROMPT.replace("{handle}", handle or "unknown")
+        .replace("{target_post}", target_post or "(unavailable)")
+        .replace("{text}", text)
+        .replace("{{", "{")
+        .replace("}}", "}")
+    )
+
+
+def _json_object(raw: str) -> dict[str, object] | None:
+    cleaned = re.sub(r"```(?:json)?|```", "", raw).strip()
+    match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+    if match is None:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def parse_label(raw: str) -> tuple[str, float]:
+    """Returns (label, confidence) from a labeler reply; `parse_error` if unusable."""
+    obj = _json_object(raw)
+    if obj is None or obj.get("label") not in V2_LABELS:
+        return "parse_error", 0.0
+    try:
+        confidence = float(str(obj.get("confidence", 0.0)))
+    except ValueError:
+        confidence = 0.0
+    return str(obj["label"]), min(1.0, max(0.0, confidence))
+
+
+def parse_direction(raw: str) -> str:
+    """Returns the direction from a reply; `parse_error` if unusable."""
+    obj = _json_object(raw)
+    direction = str((obj or {}).get("direction", "")).strip().lower()
+    return direction if direction in DIRECTIONS else "parse_error"

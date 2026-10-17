@@ -3,7 +3,10 @@ name = "pileon-lab"
 version = "0.1.0"
 description = "Pile-on detector research: incident enrichment, relative features, and sweeps"
 requires-python = ">=3.12"
-dependencies = ["httpx"]
+dependencies = [
+    "httpx",
+    "zstandard>=0.25.0",
+]
 
 [dependency-groups]
 dev = ["hypothesis", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "ruff"]
