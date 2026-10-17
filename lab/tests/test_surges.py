@@ -7,6 +7,8 @@ from pileon_lab.codebook import (
     parse_direction,
     parse_label,
     valence_prompt,
+    valence_prompt_contrast,
+    valence_prompt_reason,
 )
 from pileon_lab.evalset import hostile_scores, split_of
 from pileon_lab.label import choose
@@ -138,3 +140,17 @@ def test_split_is_stable_and_hostile_scores_count_both_classes():
     precision, recall = hostile_scores(pairs)
     assert precision == pytest.approx(0.5)
     assert recall == pytest.approx(0.5)
+
+
+def test_prompt_variants_add_examples_or_a_reason():
+    contrast = valence_prompt_contrast("t", "x", target_post="p", framing="")
+    assert "More examples at the hard boundaries" in contrast
+    assert contrast.index("More examples") < contrast.index("Reply with ONLY")
+    reason = valence_prompt_reason("t", "x", target_post="p", framing="")
+    assert '"reason"' in reason
+    assert parse_label(
+        '{"reason": "mocks her", "label": "hostile", "confidence": 0.7}'
+    ) == (
+        "hostile",
+        0.7,
+    )

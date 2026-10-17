@@ -27,10 +27,10 @@ from typing import TYPE_CHECKING
 import httpx
 
 from pileon_lab.codebook import (
+    VARIANTS,
     direction_prompt,
     parse_direction,
     parse_label,
-    valence_prompt,
 )
 from pileon_lab.fetch import Cache, Fetcher
 from pileon_lab.sources import post_counts, profiles
@@ -187,7 +187,12 @@ async def hydrate(
 
 
 def label_items(
-    items: list[Item], model: Ollama, store: LabelStore, *, labeler: str
+    items: list[Item],
+    model: Ollama,
+    store: LabelStore,
+    *,
+    labeler: str,
+    variant: str = "v2",
 ) -> None:
     """Label every item not yet labeled by `labeler`, then direct the hostile ones."""
     done = store.labeled(labeler)
@@ -195,11 +200,8 @@ def label_items(
     started = time.monotonic()
     for n, item in enumerate(todo, start=1):
         raw = model.ask(
-            valence_prompt(
-                item.target_handle,
-                item.text,
-                target_post=item.target_post,
-                framing=item.framing,
+            VARIANTS[variant](
+                item.target_handle, item.text, item.target_post, item.framing
             )
         )
         label, confidence = parse_label(raw)
@@ -238,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--include-warmup", action="store_true")
     parser.add_argument("--ollama", default="http://localhost:11435")
     parser.add_argument("--model", default="qwen3.5:27b-mlx")
+    parser.add_argument("--variant", default="v2", choices=sorted(VARIANTS))
     parser.add_argument("--hydrate-only", action="store_true")
     args = parser.parse_args(argv)
 
@@ -265,7 +268,13 @@ def main(argv: list[str] | None = None) -> int:
     store = LabelStore(args.labels)
     model = Ollama(args.ollama, args.model)
     try:
-        label_items(items, model, store, labeler=f"{args.model}+v2")
+        label_items(
+            items,
+            model,
+            store,
+            labeler=f"{args.model}+{args.variant}",
+            variant=args.variant,
+        )
     finally:
         model.close()
         store.close()

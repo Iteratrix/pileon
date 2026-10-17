@@ -19,23 +19,14 @@ import hashlib
 import json
 import random
 import sys
-from collections.abc import Callable
 from pathlib import Path
 
 from pileon_lab.agreement import weighted_kappa
-from pileon_lab.codebook import V2_LABELS, codebook_text, parse_label, valence_prompt
+from pileon_lab.codebook import V2_LABELS, VARIANTS, codebook_text, parse_label
 from pileon_lab.fetch import Cache, Fetcher
 from pileon_lab.label import Item, LabelStore, Ollama, hydrate
 from pileon_lab.surges import read_surges, sample
 
-PromptBuilder = Callable[[str, str, str, str], str]
-"""(target handle, reply text, target post, framing) -> prompt."""
-
-VARIANTS: dict[str, PromptBuilder] = {
-    "v2": lambda handle, text, target_post, framing: valence_prompt(
-        handle, text, target_post=target_post, framing=framing
-    ),
-}
 HOSTILE = frozenset({"hostile", "abusive"})
 JUDGES = ("opus", "fable")
 

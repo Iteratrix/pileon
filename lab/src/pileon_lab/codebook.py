@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 
 V2_LABELS = ("supportive", "neutral", "critical", "hostile", "abusive")
 GOLD_LABELS = ("supportive", "neutral", "critical", "hostile")
@@ -155,3 +156,63 @@ def parse_direction(raw: str) -> str:
     obj = _json_object(raw)
     direction = str((obj or {}).get("direction", "")).strip().lower()
     return direction if direction in DIRECTIONS else "parse_error"
+
+
+CONTRAST_EXAMPLES = (
+    "More examples at the hard boundaries:\n"
+    '- "Ok but this ignores that the bill already passed the Senate?" -> critical '
+    "(disagreement, no contempt)\n"
+    '- "Imagine being this confidently wrong lmao" -> hostile (mockery of the '
+    "target, though mild)\n"
+    "- (target posted a clip of a politician) "
+    '"This ghoul should be in prison." -> neutral (abuse aimed at the politician, '
+    "not the target)\n"
+    '- "Wow, the reply guys showed up fast. She is right and you all know it." '
+    "-> supportive (defends the target against the pile-on)\n"
+    '- "Great take. Truly visionary stuff here, genius." -> hostile when it is '
+    "sarcastic mockery of the target, critical when it is sarcasm about the "
+    "argument only\n"
+    '- "Who is this person and why should I care" -> hostile (dismissive '
+    "contempt for the person)\n\n"
+)
+
+
+def valence_prompt_contrast(
+    handle: str, text: str, *, target_post: str, framing: str
+) -> str:
+    """The v2 prompt plus worked examples at the critical/hostile and
+    third-party boundaries."""
+    prompt = valence_prompt(handle, text, target_post=target_post, framing=framing)
+    marker = "Reply with ONLY"
+    head, _, tail = prompt.partition(marker)
+    return f"{head}{CONTRAST_EXAMPLES}{marker}{tail}"
+
+
+def valence_prompt_reason(
+    handle: str, text: str, *, target_post: str, framing: str
+) -> str:
+    """The v2 prompt, asking for a one-sentence reason before the label."""
+    prompt = valence_prompt(handle, text, target_post=target_post, framing=framing)
+    return prompt.replace(
+        'Reply with ONLY a JSON object: {"label": ..., "confidence": <0.0-1.0>}',
+        "Reply with ONLY a JSON object: "
+        '{"reason": "<one sentence on who the reply is aimed at and how>", '
+        '"label": ..., "confidence": <0.0-1.0>}',
+    )
+
+
+PromptBuilder = Callable[[str, str, str, str], str]
+"""(target handle, reply text, target post, framing) -> prompt."""
+
+VARIANTS: dict[str, PromptBuilder] = {
+    "v2": lambda handle, text, target_post, framing: valence_prompt(
+        handle, text, target_post=target_post, framing=framing
+    ),
+    "contrast": lambda handle, text, target_post, framing: valence_prompt_contrast(
+        handle, text, target_post=target_post, framing=framing
+    ),
+    "reason": lambda handle, text, target_post, framing: valence_prompt_reason(
+        handle, text, target_post=target_post, framing=framing
+    ),
+}
+"""Named prompt variants a labeler can run; the name is part of its tag."""
