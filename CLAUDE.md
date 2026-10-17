@@ -100,8 +100,9 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   calibration), `surges.py` / `label.py` / `network.py` / `evalset.py`
   (network surges: sample, label, features, judge packets), `baselines.py`
   (off-the-shelf toxicity models), `early.py` (early warning), `nuke.py`
-  (blocklists and gates scored by counterfactual replay). Cache and outputs in `data/lab/`. Pipeline: `enrich` (warm the
-  cache from a study database) -> `features` -> `sweep` (with `--template`
+  (blocklists and gates scored by counterfactual replay). Cache and outputs
+  in `data/lab/`. Pipeline: `enrich` (warm the cache from a study database)
+  -> `features` -> `sweep` (with `--template`
   and `--page` to build the page, `--corpus-note` to describe the data).
   Checks: `cd lab && uv run pytest && uv run ruff check . && uv run mypy src`.
 - `private/` - gitignored; see above.
