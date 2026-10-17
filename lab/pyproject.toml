@@ -1,0 +1,40 @@
+[project]
+name = "pileon-lab"
+version = "0.1.0"
+description = "Pile-on detector research: incident enrichment, relative features, and sweeps"
+requires-python = ">=3.12"
+dependencies = ["httpx"]
+
+[dependency-groups]
+dev = ["hypothesis", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "ruff"]
+
+[tool.mypy]
+strict = true
+warn_unused_configs = true
+show_error_codes = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",       # docstrings optional; module docstrings carry the design notes
+    "COM812",  # conflicts with the formatter
+    "ISC001",  # conflicts with the formatter
+    "T201",    # CLIs report progress on stderr
+    "CPY001",  # no per-file copyright headers in this repo
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ANN", "PLR2004", "PLR0913", "INP001"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--strict-markers --strict-config --cov --cov-report=term-missing"
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"

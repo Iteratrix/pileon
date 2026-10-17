@@ -1,0 +1,715 @@
+<title>Pile-on Sweeps</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one reading column; a filter row scopes every chart below it; each section = question, chart, readout, table twin. */
+:root {
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --ring: rgba(11, 11, 11, 0.10);
+  --blue: #2a78d6;
+  --red: #e34948;
+  --mid: #f0efec;
+  --heat-lo: #e6effb;
+  --heat-hi: #104281;
+  --wash: rgba(42, 120, 214, 0.08);
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10);
+    --blue: #3987e5; --red: #e66767; --mid: #383835;
+    --heat-lo: #1d2633; --heat-hi: #86b6ef; --wash: rgba(57, 135, 229, 0.12);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10);
+  --blue: #3987e5; --red: #e66767; --mid: #383835;
+  --heat-lo: #1d2633; --heat-hi: #86b6ef; --wash: rgba(57, 135, 229, 0.12);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.5; }
+.page {
+  max-width: 1080px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 64px;
+  display: flex; flex-direction: column; gap: 28px;
+}
+h1 { font-size: 26px; line-height: 1.2; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h2 { font-size: 17px; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 70ch; }
+.lede { color: var(--ink-2); margin-top: 6px; }
+.corpus { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+.filters { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field label, .eyebrow { font-size: 11.5px; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+select, button.toggle {
+  font: inherit; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 6px 10px; max-width: 100%;
+}
+button.toggle { cursor: pointer; font-size: 12.5px; color: var(--ink-2); }
+select:focus-visible, button:focus-visible, input:focus-visible, .hit:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile .value { font-size: 26px; font-weight: 600; }
+.tile .sub { font-size: 12.5px; color: var(--ink-2); }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.card-head { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: baseline; }
+.note { color: var(--ink-2); font-size: 13px; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+.range { display: flex; flex-direction: column; gap: 4px; flex: 1 1 260px; min-width: 0; }
+input[type="range"] { width: 100%; accent-color: var(--blue); }
+.readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.readout div { display: flex; flex-direction: column; gap: 2px; }
+.readout b { font-size: 20px; font-weight: 600; }
+.readout span { font-size: 12px; color: var(--ink-2); }
+.split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; }
+@media (max-width: 760px) { .split { grid-template-columns: minmax(0, 1fr); } }
+.chart { width: 100%; min-width: 0; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 12.5px; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; }
+td.num, th.num { text-align: right; }
+.empty { color: var(--muted); font-size: 13px; padding: 24px 0; }
+#tip {
+  position: fixed; z-index: 20; pointer-events: none; max-width: 280px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: 8px;
+  padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+#tip strong { display: block; font-size: 14px; }
+#tip span { color: var(--ink-2); display: block; }
+footer { color: var(--ink-2); font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
+footer h2 { font-size: 13px; color: var(--ink); }
+code { font-family: var(--mono); font-size: 0.92em; }
+.hit { cursor: pointer; }
+@media (prefers-reduced-motion: no-preference) { .bar { transition: opacity 120ms; } }
+</style>
+
+<main class="page">
+  <header>
+    <h1>Pile-on Sweeps</h1>
+    <p class="lede">Each incident is a quote post or screenshot of someone's post, plus everyone who replied to or quoted that post in the next 48 hours. Every dimension below is measured relative to the target's own normal. Pick an outcome, then see which dimensions separate the incidents that meet it from the ones that don't.</p>
+    <p class="corpus" id="corpus"></p>
+  </header>
+
+  <section class="filters" aria-label="Filters for every chart">
+    <div class="field">
+      <label for="outcome">Counts as a pile-on</label>
+      <select id="outcome">
+        <option value="contempt:1">1+ contempt replies aimed at the target</option>
+        <option value="contempt:3" selected>3+ contempt replies aimed at the target</option>
+        <option value="contempt:5">5+ contempt replies aimed at the target</option>
+        <option value="contempt:10">10+ contempt replies aimed at the target</option>
+        <option value="contempt:20">20+ contempt replies aimed at the target</option>
+        <option value="critical_or_worse:10">10+ critical-or-worse replies</option>
+        <option value="critical_or_worse:20">20+ critical-or-worse replies</option>
+        <option value="share:0.10:10">Contempt is 10%+ of replies (10+ labeled)</option>
+        <option value="share:0.20:10">Contempt is 20%+ of replies (10+ labeled)</option>
+        <option value="share:0.10:30">Contempt is 10%+ of replies (30+ labeled)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="source">Amplified by</label>
+      <select id="source">
+        <option value="all">Quote posts and screenshots</option>
+        <option value="qp">Quote posts</option>
+        <option value="screenshot">Screenshots</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="post">Target post</label>
+      <select id="post">
+        <option value="all">Still up or deleted</option>
+        <option value="up">Still up</option>
+        <option value="gone">Deleted since</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="tiles" aria-label="Summary">
+    <div class="tile"><span class="eyebrow">Incidents in view</span><span class="value" id="t-n">—</span><span class="sub" id="t-n-sub"></span></div>
+    <div class="tile"><span class="eyebrow">Count as pile-ons</span><span class="value" id="t-pos">—</span><span class="sub" id="t-pos-sub"></span></div>
+    <div class="tile"><span class="eyebrow">Strongest single dimension</span><span class="value" id="t-best">—</span><span class="sub" id="t-best-sub"></span></div>
+  </section>
+
+  <section class="card" id="rank-card">
+    <div class="card-head">
+      <h2>Which dimensions separate pile-ons</h2>
+      <button class="toggle" id="rank-table-btn" type="button" aria-expanded="false">Show table</button>
+    </div>
+    <p class="note">The bar is how well one dimension alone tells pile-ons from other incidents (area under the ROC curve). 0.5 means no better than chance. Red bars: pile-ons tend to sit at high values. Blue bars: at low values. Click a row to sweep it below.</p>
+    <div class="legend" aria-hidden="true"><span><i style="background: var(--red)"></i>Higher values go with pile-ons</span><span><i style="background: var(--blue)"></i>Lower values go with pile-ons</span></div>
+    <div class="chart" id="rank-chart"></div>
+    <div class="table-wrap" id="rank-table" hidden></div>
+  </section>
+
+  <section class="card" id="one-card">
+    <div class="card-head">
+      <h2>Sweep one dimension</h2>
+      <button class="toggle" id="one-table-btn" type="button" aria-expanded="false">Show table</button>
+    </div>
+    <div class="controls">
+      <div class="field"><label for="dim">Dimension</label><select id="dim"></select></div>
+      <div class="range">
+        <label class="eyebrow" for="cut" id="cut-label">Flag incidents at or above</label>
+        <input id="cut" type="range" min="0" max="100" step="1" value="80">
+      </div>
+      <button class="toggle" id="flip" type="button">Flip direction</button>
+    </div>
+    <div class="readout" aria-live="polite">
+      <div><b id="r-cut">—</b><span>dial setting</span></div>
+      <div><b id="r-flag">—</b><span>incidents flagged</span></div>
+      <div><b id="r-prec">—</b><span>of flagged are pile-ons</span></div>
+      <div><b id="r-rec">—</b><span>of pile-ons flagged</span></div>
+    </div>
+    <div class="split">
+      <div class="chart" id="bins-chart" aria-label="Pile-on rate by bin"></div>
+      <div class="chart" id="pr-chart" aria-label="Precision and recall as the dial moves"></div>
+    </div>
+    <div class="table-wrap" id="one-table" hidden></div>
+  </section>
+
+  <section class="card" id="two-card">
+    <div class="card-head">
+      <h2>Two dimensions together</h2>
+      <button class="toggle" id="two-table-btn" type="button" aria-expanded="false">Show table</button>
+    </div>
+    <p class="note">Share of incidents in each cell that count as pile-ons. Rows and columns are quartiles of each dimension within the current view. Cells with fewer than 8 incidents are left gray.</p>
+    <div class="controls">
+      <div class="field"><label for="dimx">Across</label><select id="dimx"></select></div>
+      <div class="field"><label for="dimy">Down</label><select id="dimy"></select></div>
+    </div>
+    <div class="chart" id="grid-chart"></div>
+    <div class="table-wrap" id="two-table" hidden></div>
+  </section>
+
+  <section class="card" id="who-card">
+    <div class="card-head">
+      <h2>Who is hostile when they arrive</h2>
+      <button class="toggle" id="who-table-btn" type="button" aria-expanded="false">Show table</button>
+    </div>
+    <p class="note">Share of labeled replies and quotes that are contempt aimed at the target, pooled across incidents and split by who sent them. "Quoter's audience" followed the quoter before the incident; "target's people" followed the target or are followed by them.</p>
+    <div class="legend" aria-hidden="true"><span><i style="background: var(--red)"></i>In pile-on incidents</span><span><i style="background: var(--blue)"></i>In other incidents</span></div>
+    <div class="chart" id="who-chart"></div>
+    <div class="table-wrap" id="who-table" hidden></div>
+  </section>
+
+  <footer>
+    <h2>How these numbers were made</h2>
+    <p>Incidents come from a private quote-post study. Replies and quotes are labeled with codebook v2 (supportive, neutral, critical, hostile, abusive) by a local model given the target post as context; "contempt" is hostile or abusive and aimed at the target.</p>
+    <p>Baselines are the target's 200 posts from just before the incident, matched by kind (reply or top-level) when at least 10 exist. Engagement counts are as of October 2026. Follows are dated by their record keys, so "followed beforehand" is as of the incident. Ratios add one to both sides so a zero median stays finite.</p>
+    <p>This page holds no account identifiers, handles, post text or dates. Follower counts are rounded to two significant figures.</p>
+  </footer>
+</main>
+<div id="tip" role="tooltip" hidden></div>
+
+<script id="sweep-data" type="application/json">__SWEEP_DATA__</script>
+<script>
+(() => {
+  const DATA = JSON.parse(document.getElementById("sweep-data").textContent);
+  const ALL = DATA.rows;
+  const NS = "http://www.w3.org/2000/svg";
+  const KIND = {
+    reply_lift_median: "ratio", reply_lift_p90: "ratio", reply_vs_record: "ratio", mix_shift: "ratio",
+    window_lift_median: "ratio", burst_ratio: "ratio", follower_ratio_log10: "log10", target_followers: "count",
+    follow_amplifier: "share", follow_amplifier_after: "share", follow_target: "share", target_follows: "share",
+    strangers_to_both: "share", within_15m: "share", within_1h: "share",
+    amplifier_follows_target: "bool", target_follows_amplifier: "bool", arrivals: "count",
+  };
+  const SHORT = {
+    reply_lift_median: "Replies vs median post", reply_lift_p90: "Replies vs 90th-pct post",
+    reply_vs_record: "Replies vs previous high", mix_shift: "Reply/like mix vs normal",
+    window_lift_median: "48 h arrivals vs median", burst_ratio: "48 h after vs before",
+    follower_ratio_log10: "Quoter / target followers", target_followers: "Target followers",
+    follow_amplifier: "Arrivals from quoter's audience", follow_amplifier_after: "Arrivals who followed quoter after",
+    follow_target: "Arrivals following target", target_follows: "Arrivals the target follows",
+    strangers_to_both: "Arrivals following neither", within_15m: "Arrivals in first 15 min",
+    within_1h: "Arrivals in first hour", amplifier_follows_target: "Quoter followed target",
+    target_follows_amplifier: "Target followed quoter", arrivals: "Arrivals (absolute)",
+  };
+  const DIMS = Object.keys(KIND).filter((k) => k in DATA.dimensions);
+  const state = { outcome: "contempt:3", source: "all", post: "all", dim: null, cut: 80, flip: false, dimx: null, dimy: null };
+  const $ = (id) => document.getElementById(id);
+  const tip = $("tip");
+
+  const compact = (n) => {
+    const a = Math.abs(n);
+    if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 0 : 1) + "M";
+    if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + "K";
+    return String(Math.round(n));
+  };
+  const pct = (v) => (v == null || Number.isNaN(v) ? "—" : (v < 0.1 && v > 0 ? (v * 100).toFixed(1) : Math.round(v * 100)) + "%");
+  const fmt = (dim, v) => {
+    if (v == null || Number.isNaN(v)) return "—";
+    switch (KIND[dim]) {
+      case "ratio": return (v >= 100 ? compact(v) : v >= 10 ? v.toFixed(0) : v.toFixed(1)) + "×";
+      case "share": return pct(v);
+      case "count": return compact(v);
+      case "log10": { const r = 10 ** v; return r >= 1 ? (r >= 100 ? compact(r) : r.toFixed(r >= 10 ? 0 : 1)) + "× bigger" : (1 / r).toFixed(1) + "× smaller"; }
+      case "bool": return v ? "yes" : "no";
+      default: return String(v);
+    }
+  };
+  const num = (row, dim) => {
+    const v = row[dim];
+    if (v == null) return null;
+    return typeof v === "boolean" ? (v ? 1 : 0) : v;
+  };
+
+  // "field:k" counts replies (volume-dependent); "share:x:min" is the share of
+  // labeled replies that are contempt, judged only where min+ are labeled.
+  function outcome() {
+    const parts = state.outcome.split(":");
+    return parts[0] === "share"
+      ? { kind: "share", x: Number(parts[1]), min: Number(parts[2]) }
+      : { kind: "count", field: parts[0], k: Number(parts[1]) };
+  }
+  function slice() {
+    const o = outcome();
+    return ALL.filter((r) => {
+      if (o.kind === "share" && (r.labeled ?? 0) < o.min) return false;
+      if (state.source !== "all" && r.source !== state.source) return false;
+      if (state.post === "up" && !r.target_post_found) return false;
+      if (state.post === "gone" && r.target_post_found) return false;
+      return true;
+    });
+  }
+  function positive(row) {
+    const o = outcome();
+    return o.kind === "share" ? (row.contempt_share ?? 0) >= o.x : (row[o.field] ?? 0) >= o.k;
+  }
+
+  function auc(pairs) {
+    const pos = pairs.filter((p) => p[1]).length;
+    const neg = pairs.length - pos;
+    if (!pos || !neg) return null;
+    const sorted = pairs.slice().sort((a, b) => a[0] - b[0]);
+    let rankSum = 0;
+    for (let i = 0; i < sorted.length; ) {
+      let j = i;
+      while (j < sorted.length && sorted[j][0] === sorted[i][0]) j++;
+      const mid = (i + j + 1) / 2;
+      for (let k = i; k < j; k++) if (sorted[k][1]) rankSum += mid;
+      i = j;
+    }
+    return (rankSum - (pos * (pos + 1)) / 2) / (pos * neg);
+  }
+  function ranking(rows) {
+    return DIMS.map((dim) => {
+      const pairs = rows.filter((r) => num(r, dim) != null).map((r) => [num(r, dim), positive(r)]);
+      return { dim, auc: auc(pairs), n: pairs.length };
+    }).filter((d) => d.auc != null).sort((a, b) => Math.abs(b.auc - 0.5) - Math.abs(a.auc - 0.5));
+  }
+
+  function quantileBins(rows, dim, count) {
+    const known = rows.filter((r) => num(r, dim) != null).sort((a, b) => num(a, dim) - num(b, dim));
+    if (KIND[dim] === "bool") {
+      return [0, 1].map((v) => {
+        const members = known.filter((r) => num(r, dim) === v);
+        return { lo: v, hi: v, rows: members };
+      }).filter((b) => b.rows.length);
+    }
+    const bins = [];
+    const target = known.length / count;
+    let current = [];
+    for (let i = 0; i < known.length; i++) {
+      current.push(known[i]);
+      const next = known[i + 1];
+      const full = current.length >= target && bins.length < count - 1;
+      if (!next || (full && num(next, dim) !== num(known[i], dim))) {
+        bins.push({ lo: num(current[0], dim), hi: num(current[current.length - 1], dim), rows: current });
+        current = [];
+      }
+    }
+    return bins;
+  }
+  function binLabel(dim, bin) {
+    if (KIND[dim] === "bool") return bin.lo ? "yes" : "no";
+    return bin.lo === bin.hi ? fmt(dim, bin.lo) : fmt(dim, bin.lo) + "–" + fmt(dim, bin.hi);
+  }
+
+  const el = (tag, attrs = {}, parent) => {
+    const node = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    if (parent) parent.appendChild(node);
+    return node;
+  };
+  const text = (parent, x, y, value, attrs = {}) => {
+    const node = el("text", { x, y, fill: "var(--muted)", "font-size": 11, ...attrs }, parent);
+    node.textContent = value;
+    return node;
+  };
+  // Round only the data end of a bar: a path with 4px corners away from the baseline.
+  function barPath(x, y, w, h, end) {
+    const r = Math.min(4, Math.abs(end === "top" ? h : w) / 2, end === "top" ? w / 2 : h / 2);
+    if (end === "top") return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+    if (end === "right") return `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`;
+    return `M${x + w},${y}H${x + r}Q${x},${y} ${x},${y + r}V${y + h - r}Q${x},${y + h} ${x + r},${y + h}H${x + w}Z`;
+  }
+  function showTip(evt, title, lines) {
+    tip.replaceChildren();
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    tip.appendChild(strong);
+    for (const line of lines) {
+      const span = document.createElement("span");
+      span.textContent = line;
+      tip.appendChild(span);
+    }
+    tip.hidden = false;
+    const box = tip.getBoundingClientRect();
+    const x = Math.min(window.innerWidth - box.width - 8, Math.max(8, evt.clientX + 14));
+    const y = Math.min(window.innerHeight - box.height - 8, Math.max(8, evt.clientY + 14));
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+  function hideTip() { tip.hidden = true; }
+  function hoverable(node, title, lines, onClick) {
+    node.classList.add("hit");
+    node.setAttribute("tabindex", "0");
+    node.addEventListener("pointermove", (e) => showTip(e, title, lines));
+    node.addEventListener("pointerleave", hideTip);
+    node.addEventListener("focus", () => {
+      const b = node.getBoundingClientRect();
+      showTip({ clientX: b.right, clientY: b.top }, title, lines);
+    });
+    node.addEventListener("blur", hideTip);
+    if (onClick) {
+      node.addEventListener("click", onClick);
+      node.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } });
+    }
+  }
+  function table(container, headers, rows) {
+    const t = document.createElement("table");
+    const head = t.createTHead().insertRow();
+    headers.forEach(([label, numeric]) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      if (numeric) th.className = "num";
+      head.appendChild(th);
+    });
+    const body = t.createTBody();
+    rows.forEach((cells) => {
+      const tr = body.insertRow();
+      cells.forEach((value, i) => {
+        const td = tr.insertCell();
+        td.textContent = value;
+        if (headers[i][1]) td.className = "num";
+      });
+    });
+    container.replaceChildren(t);
+  }
+
+  function renderTiles(rows, ranked) {
+    const pos = rows.filter(positive).length;
+    $("t-n").textContent = rows.length.toLocaleString();
+    $("t-n-sub").textContent = rows.length === ALL.length
+      ? "all incidents"
+      : `of ${ALL.length.toLocaleString()}` + (outcome().kind === "share" ? `; ${outcome().min}+ labeled replies` : "");
+    $("t-pos").textContent = pos.toLocaleString();
+    $("t-pos-sub").textContent = `${pct(rows.length ? pos / rows.length : null)} of incidents in view`;
+    const best = ranked[0];
+    $("t-best").textContent = best ? best.auc.toFixed(2) : "—";
+    $("t-best-sub").textContent = best ? `${SHORT[best.dim]} (AUC)` : "not enough pile-ons in view";
+  }
+
+  function renderRank(rows, ranked) {
+    const box = $("rank-chart");
+    box.replaceChildren();
+    if (!ranked.length) { box.innerHTML = '<p class="empty">No dimension can be scored: this view has no pile-ons or no other incidents.</p>'; return; }
+    const width = box.clientWidth || 700;
+    const labelW = Math.min(230, width * 0.42);
+    const rowH = 26;
+    const top = 6, bottom = 28, rightPad = 54;
+    const height = top + ranked.length * rowH + bottom;
+    const spread = Math.max(0.1, Math.ceil(Math.max(...ranked.map((d) => Math.abs(d.auc - 0.5))) * 20 + 0.5) / 20);
+    const x0 = labelW, x1 = width - rightPad;
+    const xs = (v) => x0 + ((v - (0.5 - spread)) / (2 * spread)) * (x1 - x0);
+    const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Separation strength per dimension" }, box);
+    const ticks = [0.5 - spread, 0.5 - spread / 2, 0.5, 0.5 + spread / 2, 0.5 + spread];
+    ticks.forEach((t) => {
+      el("line", { x1: xs(t), x2: xs(t), y1: top, y2: height - bottom, stroke: t === 0.5 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 }, svg);
+      text(svg, xs(t), height - bottom + 16, t.toFixed(2), { "text-anchor": "middle" });
+    });
+    text(svg, xs(0.5), height - 2, "0.5 = chance", { "text-anchor": "middle", "font-size": 10.5 });
+    const chosen = ranked.findIndex((d) => d.dim === state.dim);
+    if (chosen >= 0) el("rect", { x: 0, y: top + chosen * rowH, width, height: rowH, rx: 4, fill: "var(--wash)" }, svg);
+    ranked.forEach((d, i) => {
+      const y = top + i * rowH;
+      const selected = d.dim === state.dim;
+      const label = text(svg, x0 - 10, y + rowH / 2 + 4, SHORT[d.dim], { "text-anchor": "end", fill: selected ? "var(--ink)" : "var(--ink-2)", "font-size": 12, "font-weight": selected ? 600 : 400 });
+      label.style.fontFamily = "var(--font)";
+      const a = xs(Math.min(d.auc, 0.5)), b = xs(Math.max(d.auc, 0.5));
+      const h = Math.min(16, rowH - 8);
+      const right = d.auc >= 0.5;
+      el("path", { d: barPath(a, y + (rowH - h) / 2, Math.max(1, b - a), h, right ? "right" : "left"), fill: right ? "var(--red)" : "var(--blue)", class: "bar" }, svg);
+      text(svg, right ? b + 6 : a - 6, y + rowH / 2 + 4, d.auc.toFixed(2), { "text-anchor": right ? "start" : "end", fill: "var(--ink-2)", "font-size": 11 });
+      const hit = el("rect", { x: 0, y, width, height: rowH, fill: "transparent" }, svg);
+      hoverable(hit, `AUC ${d.auc.toFixed(3)}`, [
+        DATA.dimensions[d.dim],
+        `${d.n.toLocaleString()} incidents have this measure`,
+        right ? "Higher values go with pile-ons" : "Lower values go with pile-ons",
+        "Click to sweep it",
+      ], () => { state.dim = d.dim; state.flip = false; render(); $("one-card").scrollIntoView({ behavior: "smooth", block: "start" }); });
+    });
+    table($("rank-table"), [["Dimension", false], ["AUC", true], ["Incidents measured", true], ["Pile-ons sit at", false]],
+      ranked.map((d) => [DATA.dimensions[d.dim], d.auc.toFixed(3), d.n.toLocaleString(), d.auc >= 0.5 ? "high values" : "low values"]));
+  }
+
+  function sweep(rows, dim, lower) {
+    const known = rows.filter((r) => num(r, dim) != null);
+    const values = known.map((r) => num(r, dim)).sort((a, b) => a - b);
+    const positives = known.filter(positive).length;
+    const at = (p) => values[Math.min(values.length - 1, Math.max(0, Math.round((p / 100) * (values.length - 1))))];
+    const point = (cut) => {
+      const flagged = known.filter((r) => (lower ? num(r, dim) <= cut : num(r, dim) >= cut));
+      const tp = flagged.filter(positive).length;
+      return { cut, flagged: flagged.length, tp, precision: flagged.length ? tp / flagged.length : null, recall: positives ? tp / positives : null };
+    };
+    return { known, values, positives, at, point };
+  }
+
+  function renderOne(rows, ranked) {
+    const select = $("dim");
+    if (!state.dim || !DIMS.includes(state.dim)) state.dim = ranked[0] ? ranked[0].dim : DIMS[0];
+    select.replaceChildren(...DIMS.map((d) => { const o = document.createElement("option"); o.value = d; o.textContent = SHORT[d]; o.selected = d === state.dim; return o; }));
+    const dim = state.dim;
+    const scored = ranked.find((d) => d.dim === dim);
+    const lower = scored ? (scored.auc < 0.5) !== state.flip : state.flip;
+    const s = sweep(rows, dim, lower);
+    $("cut-label").textContent = lower ? "Flag incidents at or below" : "Flag incidents at or above";
+    const binsBox = $("bins-chart"), prBox = $("pr-chart");
+    binsBox.replaceChildren(); prBox.replaceChildren();
+    if (s.values.length < 20 || !s.positives) {
+      binsBox.innerHTML = '<p class="empty">Too few incidents with this measure in the current view to sweep it.</p>';
+      ["r-cut", "r-flag", "r-prec", "r-rec"].forEach((id) => { $(id).textContent = "—"; });
+      return;
+    }
+    const percentile = lower ? 100 - state.cut : state.cut;
+    const cur = s.point(s.at(percentile));
+    $("r-cut").textContent = (lower ? "≤ " : "≥ ") + fmt(dim, cur.cut);
+    $("r-flag").textContent = `${cur.flagged.toLocaleString()} of ${s.known.length.toLocaleString()}`;
+    $("r-prec").textContent = pct(cur.precision);
+    $("r-rec").textContent = `${pct(cur.recall)} (${cur.tp} of ${s.positives})`;
+
+    const bins = quantileBins(rows, dim, 10).map((b) => ({ ...b, n: b.rows.length, pos: b.rows.filter(positive).length }));
+    bins.forEach((b) => { b.rate = b.n ? b.pos / b.n : 0; });
+    const base = s.positives / s.known.length;
+    const width = binsBox.clientWidth || 560;
+    const left = 40, right = 8, top = 18, bottom = 42;
+    const height = 240;
+    const ymax = Math.max(0.1, Math.ceil(Math.max(base, ...bins.map((b) => b.rate)) * 10) / 10);
+    const ys = (v) => top + (1 - v / ymax) * (height - top - bottom);
+    const band = (width - left - right) / bins.length;
+    const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `Pile-on rate by ${SHORT[dim]}` }, binsBox);
+    for (let t = 0; t <= ymax + 1e-9; t += ymax / 4) {
+      el("line", { x1: left, x2: width - right, y1: ys(t), y2: ys(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg);
+      text(svg, left - 6, ys(t) + 4, pct(t), { "text-anchor": "end" });
+    }
+    const best = bins.reduce((m, b) => (b.rate > m.rate ? b : m), bins[0]);
+    const every = band < 48 ? 2 : 1;
+    bins.forEach((b, i) => {
+      const w = Math.min(24, band * 0.62);
+      const x = left + i * band + (band - w) / 2;
+      const h = Math.max(1, ys(0) - ys(b.rate));
+      const inDial = lower ? b.hi <= cur.cut : b.lo >= cur.cut;
+      el("path", { d: barPath(x, ys(b.rate), w, h, "top"), fill: "var(--blue)", opacity: inDial ? 1 : 0.38, class: "bar" }, svg);
+      if (b === best) text(svg, x + w / 2, ys(b.rate) - 6, pct(b.rate), { "text-anchor": "middle", fill: "var(--ink-2)" });
+      if (i % every === 0 || i === bins.length - 1) {
+        const lbl = text(svg, left + i * band + band / 2, height - bottom + 16, binLabel(dim, b), { "text-anchor": "middle", "font-size": 10.5 });
+        if (band < 70) lbl.textContent = KIND[dim] === "bool" ? binLabel(dim, b) : fmt(dim, b.lo);
+      }
+      const hit = el("rect", { x: left + i * band, y: top, width: band, height: height - top - bottom, fill: "transparent" }, svg);
+      hoverable(hit, `${pct(b.rate)} pile-ons`, [`${SHORT[dim]}: ${binLabel(dim, b)}`, `${b.pos} of ${b.n} incidents`]);
+    });
+    el("line", { x1: left, x2: width - right, y1: ys(base), y2: ys(base), stroke: "var(--ink-2)", "stroke-width": 1, opacity: 0.6 }, svg);
+    text(svg, width - right, ys(base) - 5, `all: ${pct(base)}`, { "text-anchor": "end", fill: "var(--ink-2)" });
+    text(svg, left, height - 6, `${SHORT[dim]}, in ten equal-count bins (faded bars fall outside the dial)`, { "font-size": 10.5 });
+
+    const pts = [];
+    for (let p = 0; p <= 100; p += 2) {
+      const q = s.point(s.at(lower ? 100 - p : p));
+      if (q.precision != null) pts.push(q);
+    }
+    const pw = prBox.clientWidth || 360;
+    const ph = 240, pl = 40, pr = 10, pt = 18, pb = 42;
+    const px = (v) => pl + v * (pw - pl - pr);
+    const py = (v) => pt + (1 - v) * (ph - pt - pb);
+    const svg2 = el("svg", { viewBox: `0 0 ${pw} ${ph}`, role: "img", "aria-label": "Precision against recall as the dial moves" }, prBox);
+    [0, 0.25, 0.5, 0.75, 1].forEach((t) => {
+      el("line", { x1: pl, x2: pw - pr, y1: py(t), y2: py(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg2);
+      text(svg2, pl - 6, py(t) + 4, pct(t), { "text-anchor": "end" });
+      text(svg2, px(t), ph - pb + 16, pct(t), { "text-anchor": "middle" });
+    });
+    el("line", { x1: pl, x2: pw - pr, y1: py(base), y2: py(base), stroke: "var(--ink-2)", opacity: 0.6 }, svg2);
+    text(svg2, pw - pr, py(base) - 5, "chance", { "text-anchor": "end", fill: "var(--ink-2)" });
+    el("path", { d: pts.map((q, i) => `${i ? "L" : "M"}${px(q.recall)},${py(q.precision)}`).join(""), fill: "none", stroke: "var(--blue)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg2);
+    el("circle", { cx: px(cur.recall), cy: py(cur.precision), r: 5, fill: "var(--blue)", stroke: "var(--surface)", "stroke-width": 2 }, svg2);
+    text(svg2, pl, ph - 6, "pile-ons flagged (recall) →", { "font-size": 10.5 });
+    text(svg2, pl + 4, pt - 6, "↑ flagged that are pile-ons (precision)", { "font-size": 10.5 });
+    pts.forEach((q) => {
+      const hit = el("circle", { cx: px(q.recall), cy: py(q.precision), r: 9, fill: "transparent" }, svg2);
+      hoverable(hit, `${pct(q.precision)} precision`, [`${pct(q.recall)} recall`, `dial ${(lower ? "≤ " : "≥ ") + fmt(dim, q.cut)}`, `${q.flagged} incidents flagged`]);
+    });
+
+    table($("one-table"), [["Bin", false], ["Incidents", true], ["Pile-ons", true], ["Rate", true]],
+      bins.map((b) => [binLabel(dim, b), b.n.toLocaleString(), b.pos.toLocaleString(), pct(b.rate)]));
+  }
+
+  function heat(t) {
+    const css = getComputedStyle(document.documentElement);
+    const parse = (hex) => { hex = hex.trim().replace("#", ""); return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16)); };
+    const a = parse(css.getPropertyValue("--heat-lo")), b = parse(css.getPropertyValue("--heat-hi"));
+    const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+    const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+    return { fill: `rgb(${c.join(",")})`, ink: lum > 0.55 ? "#0b0b0b" : "#f7f7f5" };
+  }
+
+  function renderTwo(rows, ranked) {
+    const numeric = ranked.filter((d) => KIND[d.dim] !== "bool").map((d) => d.dim);
+    if (!state.dimx || !DIMS.includes(state.dimx)) state.dimx = numeric[0] || DIMS[0];
+    if (!state.dimy || !DIMS.includes(state.dimy) || state.dimy === state.dimx) state.dimy = numeric.find((d) => d !== state.dimx) || DIMS[1];
+    for (const [id, key] of [["dimx", "dimx"], ["dimy", "dimy"]]) {
+      $(id).replaceChildren(...DIMS.map((d) => { const o = document.createElement("option"); o.value = d; o.textContent = SHORT[d]; o.selected = d === state[key]; return o; }));
+    }
+    const box = $("grid-chart");
+    box.replaceChildren();
+    const both = rows.filter((r) => num(r, state.dimx) != null && num(r, state.dimy) != null);
+    if (both.length < 40) { box.innerHTML = '<p class="empty">Too few incidents have both measures in the current view.</p>'; return; }
+    const bx = quantileBins(both, state.dimx, 4), by = quantileBins(both, state.dimy, 4);
+    const find = (bins, v) => bins.findIndex((b) => v >= b.lo && v <= b.hi);
+    const cells = by.map(() => bx.map(() => ({ n: 0, pos: 0 })));
+    both.forEach((r) => {
+      const i = find(by, num(r, state.dimy)), j = find(bx, num(r, state.dimx));
+      if (i < 0 || j < 0) return;
+      cells[i][j].n++;
+      if (positive(r)) cells[i][j].pos++;
+    });
+    const width = box.clientWidth || 700;
+    const left = Math.min(150, width * 0.28), top = 8, bottom = 44;
+    const cw = (width - left - 8) / bx.length;
+    const chh = Math.min(64, Math.max(44, cw * 0.55));
+    const height = top + chh * by.length + bottom;
+    const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `Pile-on rate by ${SHORT[state.dimx]} and ${SHORT[state.dimy]}` }, box);
+    const rates = cells.flat().filter((c) => c.n >= 8).map((c) => c.pos / c.n);
+    const top_rate = Math.max(0.05, ...rates);
+    by.forEach((b, i) => {
+      const row = by.length - 1 - i;
+      text(svg, left - 8, top + row * chh + chh / 2 + 4, binLabel(state.dimy, b), { "text-anchor": "end", "font-size": 10.5 });
+      bx.forEach((c, j) => {
+        const cell = cells[i][j];
+        const x = left + j * cw, y = top + row * chh;
+        const enough = cell.n >= 8;
+        const rate = enough ? cell.pos / cell.n : null;
+        const color = enough ? heat(rate / top_rate) : { fill: "var(--mid)", ink: "var(--muted)" };
+        const rect = el("rect", { x: x + 1, y: y + 1, width: cw - 2, height: chh - 2, rx: 4, fill: color.fill }, svg);
+        if (cw > 54) {
+          const t1 = text(svg, x + cw / 2, y + chh / 2 + 1, enough ? pct(rate) : "few", { "text-anchor": "middle", fill: color.ink, "font-size": 12.5, "font-weight": 600 });
+          t1.style.pointerEvents = "none";
+          const t2 = text(svg, x + cw / 2, y + chh / 2 + 15, `n=${cell.n}`, { "text-anchor": "middle", fill: color.ink, "font-size": 10, opacity: 0.8 });
+          t2.style.pointerEvents = "none";
+        }
+        hoverable(rect, enough ? `${pct(rate)} pile-ons` : "Too few incidents", [
+          `${SHORT[state.dimx]}: ${binLabel(state.dimx, c)}`,
+          `${SHORT[state.dimy]}: ${binLabel(state.dimy, b)}`,
+          `${cell.pos} of ${cell.n} incidents`,
+        ]);
+      });
+    });
+    bx.forEach((c, j) => text(svg, left + j * cw + cw / 2, height - bottom + 16, binLabel(state.dimx, c), { "text-anchor": "middle", "font-size": 10.5 }));
+    text(svg, left, height - 6, `→ ${SHORT[state.dimx]} (quartiles)`, { "font-size": 10.5 });
+    text(svg, 0, top + 10, `↑ ${SHORT[state.dimy]}`, { "font-size": 10.5 });
+    const rowsOut = [];
+    by.forEach((b, i) => bx.forEach((c, j) => { const cell = cells[i][j]; rowsOut.push([binLabel(state.dimx, c), binLabel(state.dimy, b), cell.n.toLocaleString(), cell.pos.toLocaleString(), cell.n ? pct(cell.pos / cell.n) : "—"]); }));
+    table($("two-table"), [[SHORT[state.dimx], false], [SHORT[state.dimy], false], ["Incidents", true], ["Pile-ons", true], ["Rate", true]], rowsOut);
+  }
+
+  function renderWho(rows) {
+    const groups = [["amplifier", "Quoter's audience"], ["target", "Target's people"], ["stranger", "Neither"]];
+    const pool = (subset) => groups.map(([key]) => {
+      let labeled = 0, contempt = 0;
+      subset.forEach((r) => { labeled += (r.group_labeled || {})[key] || 0; contempt += (r.group_contempt || {})[key] || 0; });
+      return { labeled, contempt, share: labeled ? contempt / labeled : null };
+    });
+    const pos = pool(rows.filter(positive)), neg = pool(rows.filter((r) => !positive(r)));
+    const box = $("who-chart");
+    box.replaceChildren();
+    const width = box.clientWidth || 700;
+    const left = Math.min(150, width * 0.3), right = 70, top = 4, rowH = 52;
+    const height = top + rowH * groups.length + 24;
+    const max = Math.max(0.05, ...[...pos, ...neg].map((g) => g.share || 0));
+    const xmax = Math.ceil(max * 20) / 20;
+    const xs = (v) => left + (v / xmax) * (width - left - right);
+    const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Contempt share by arrival group" }, box);
+    [0, xmax / 2, xmax].forEach((t) => {
+      el("line", { x1: xs(t), x2: xs(t), y1: top, y2: height - 24, stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg);
+      text(svg, xs(t), height - 8, pct(t), { "text-anchor": "middle" });
+    });
+    groups.forEach(([, label], i) => {
+      const y = top + i * rowH;
+      text(svg, left - 10, y + rowH / 2 + 4, label, { "text-anchor": "end", fill: "var(--ink-2)", "font-size": 12 });
+      [[pos[i], "var(--red)", "pile-on incidents", 0], [neg[i], "var(--blue)", "other incidents", 1]].forEach(([g, color, name, k]) => {
+        const h = 14, by = y + 8 + k * (h + 4);
+        if (g.share == null) return;
+        const w = Math.max(1, xs(g.share) - xs(0));
+        const bar = el("path", { d: barPath(xs(0), by, w, h, "right"), fill: color, class: "bar" }, svg);
+        text(svg, xs(0) + w + 6, by + h - 3, pct(g.share), { fill: "var(--ink-2)", "font-size": 11 });
+        hoverable(bar, `${pct(g.share)} contempt`, [`${label}, ${name}`, `${g.contempt.toLocaleString()} of ${g.labeled.toLocaleString()} labeled replies and quotes`]);
+      });
+    });
+    table($("who-table"), [["Group", false], ["Pile-on incidents", true], ["Labeled", true], ["Other incidents", true], ["Labeled", true]],
+      groups.map(([, label], i) => [label, pct(pos[i].share), pos[i].labeled.toLocaleString(), pct(neg[i].share), neg[i].labeled.toLocaleString()]));
+  }
+
+  function render() {
+    hideTip();
+    const rows = slice();
+    const ranked = ranking(rows);
+    renderTiles(rows, ranked);
+    renderRank(rows, ranked);
+    renderOne(rows, ranked);
+    renderTwo(rows, ranked);
+    renderWho(rows);
+  }
+
+  const n = ALL.length;
+  const pileons = ALL.filter((r) => (r.contempt ?? 0) >= 3).length;
+  $("corpus").textContent = `${n.toLocaleString()} incidents with individual targets · ${pileons.toLocaleString()} with 3+ contempt replies · one amplifier (qp-pileon study)`;
+
+  $("outcome").addEventListener("change", (e) => { state.outcome = e.target.value; render(); });
+  $("source").addEventListener("change", (e) => { state.source = e.target.value; render(); });
+  $("post").addEventListener("change", (e) => { state.post = e.target.value; render(); });
+  $("dim").addEventListener("change", (e) => { state.dim = e.target.value; state.flip = false; render(); });
+  $("cut").addEventListener("input", (e) => { state.cut = Number(e.target.value); renderOne(slice(), ranking(slice())); });
+  $("flip").addEventListener("click", () => { state.flip = !state.flip; render(); });
+  $("dimx").addEventListener("change", (e) => { state.dimx = e.target.value; renderTwo(slice(), ranking(slice())); });
+  $("dimy").addEventListener("change", (e) => { state.dimy = e.target.value; renderTwo(slice(), ranking(slice())); });
+  for (const key of ["rank", "one", "two", "who"]) {
+    const btn = $(`${key}-table-btn`), wrap = $(`${key}-table`);
+    btn.addEventListener("click", () => {
+      wrap.hidden = !wrap.hidden;
+      btn.setAttribute("aria-expanded", String(!wrap.hidden));
+      btn.textContent = wrap.hidden ? "Show table" : "Hide table";
+    });
+  }
+  let resizeTimer = 0;
+  new ResizeObserver(() => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 120); }).observe(document.querySelector(".page"));
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+  new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  render();
+})();
+</script>

@@ -46,6 +46,16 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   `@bsky/jetstream` SDK (pinned 1.0.0); pipes into `pileon-recorder ingest`.
 - `deploy/` - systemd user units (`pileon-recorder.service`,
   `pileon-replay.service`); installed copies live in `~/.config/systemd/user/`.
+- `lab/` - `pileon-lab` (Python, uv): pile-on detector research. `fetch.py`
+  (polite cached XRPC; `offline=True` for analysis), `sources.py` (typed
+  AppView/PDS reads), `study.py` (qp-pileon clusters as incidents),
+  `enrich.py` (warms the cache), `features.py` (relative features),
+  `sweep.py` (de-identified sweep data, AUC ranking, page build),
+  `web/sweeps.template.html` (the interactive sweep page). Cache and outputs
+  in `data/lab/`. Commands:
+  `uv run python -m pileon_lab.enrich --study-db ../studies/qp-pileon/data/crawl.db --cache ../data/lab/cache.db`,
+  then `pileon_lab.features ... --out ../data/lab/features.jsonl`, then
+  `pileon_lab.sweep --features ... --out ... --template web/sweeps.template.html --page ...`.
 - The private study lives outside the repository.
 
 ## Data sources (verified 2026-10-16)
