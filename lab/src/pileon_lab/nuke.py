@@ -341,23 +341,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
 
-    rows = [
-        r
-        for r in map(json.loads, args.features.read_text().splitlines())
-        if (r["labeled"] or 0) >= args.min_labeled
-    ]
-    classes = {
-        r["incident_id"]: surge_class(
-            r, hostile_at=args.hostile_at, support_at=args.support_at
-        )
-        for r in rows
-    }
+    rows = list(map(json.loads, args.features.read_text().splitlines()))
     followers = {r["incident_id"]: r.get("amplifier_followers") for r in rows}
     order: tuple[str, ...] = CLASS_ORDER
     if args.groups is not None:
         groups: dict[str, str] = json.loads(args.groups.read_text())
-        classes = {k: v for k, v in groups.items() if k in classes}
+        classes = {k: v for k, v in groups.items() if k in followers}
         order = tuple(sorted(set(classes.values())))
+    else:
+        classes = {
+            r["incident_id"]: surge_class(
+                r, hostile_at=args.hostile_at, support_at=args.support_at
+            )
+            for r in rows
+            if (r["labeled"] or 0) >= max(args.min_labeled, 1)
+        }
     if args.surges is not None:
         if args.labels is None:
             parser.error("--surges needs --labels")
