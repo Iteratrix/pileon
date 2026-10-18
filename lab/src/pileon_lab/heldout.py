@@ -15,21 +15,30 @@ Both report attrition by size bucket.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import random
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pileon_lab.detector import Reference
 from pileon_lab.evalset import JUDGES
+from pileon_lab.fetch import Cache, Fetcher
+from pileon_lab.sources import post_thread, post_views
 from pileon_lab.study import load_incidents
 from pileon_lab.surges import SurgeRecord, read_surges, sample, size_bucket
 from pileon_lab.sweep import surge_class
-from pileon_lab.threads import label_class, read_judgment
+from pileon_lab.threads import (
+    contempt,
+    created,
+    descendants,
+    label_class,
+    read_judgment,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -200,6 +209,73 @@ def gold(
     return out, sources
 
 
+LEAD = timedelta(minutes=15)
+
+
+def early_alerts(
+    gold_entries: dict[str, Row], rows: dict[str, Row], reference: Reference
+) -> dict[str, str]:
+    """Each gold surge the early detector alerts on: true or false alert."""
+    out = {}
+    for surge_id, entry in gold_entries.items():
+        score, _ = reference.score(rows[surge_id])
+        if score is not None and score >= reference.cutoffs[ALERT_BUDGET]:
+            out[surge_id] = "true alert" if entry["positive"] else "false alert"
+    return out
+
+
+def contempt_weights(threads_dir: Path) -> dict[str, dict[str, float]]:
+    """Surge id -> post URI -> pooled contempt (each judge's call counts 1/2)."""
+    key: dict[str, Any] = json.loads((threads_dir / "key.json").read_text())
+    judged = [read_judgment(threads_dir / f"{j}.jsonl") for j in JUDGES]
+    out: dict[str, dict[str, float]] = {}
+    for packet_id, entry in key.items():
+        weights = out.setdefault(entry["surge"], {})
+        for judgment in judged:
+            for (surge, post), row in judgment.posts.items():
+                if surge == packet_id and contempt(row):
+                    uri = entry["posts"][post]
+                    weights[uri] = weights.get(uri, 0.0) + 1 / len(judged)
+    return out
+
+
+async def post_times(posts: dict[str, str], fetcher: Fetcher) -> dict[str, datetime]:
+    """`createdAt` of a thread packet's posts (packet id -> URI), from the cache.
+
+    The packet's own roots (target posts and the quote) give every reply,
+    fetched exactly as `threads.build_thread` fetched them so the cache
+    serves them; anything else shown, such as other quote posts, comes from
+    the post index.
+    """
+    views: list[dict[str, Any]] = []
+    for post_id, uri in posts.items():
+        if post_id.startswith("T") or post_id == "Q":
+            height = 0 if post_id == "Q" else 2
+            node = await post_thread(fetcher, uri, depth=10, parent_height=height)
+            if node is not None:
+                views += [node["post"], *(p for p, _ in descendants(node))]
+    times = {v["uri"]: t for v in views if (t := created(v)) is not None}
+    rest = [uri for uri in posts.values() if uri not in times]
+    for view in (await post_views(fetcher, rest)).values():
+        if (t := created(view)) is not None:
+            times[view["uri"]] = t
+    return times
+
+
+def lead_shares(
+    weights: dict[str, float], times: dict[str, datetime], onset: datetime
+) -> tuple[float, float]:
+    """Pooled contempt after onset + 15 min, and all of it (both weighted)."""
+    after = total = 0.0
+    for uri, weight in weights.items():
+        when = times.get(uri)
+        if when is None:
+            continue
+        total += weight
+        after += weight if when > onset + LEAD else 0.0
+    return after, total
+
+
 def _rows(path: Path) -> dict[str, Row]:
     return {r["incident_id"]: r for r in map(json.loads, path.read_text().splitlines())}
 
@@ -229,7 +305,19 @@ def main(argv: list[str] | None = None) -> int:
     gd.add_argument("--measure", choices=MEASURES, default="primary")
     gd.add_argument("--include-overlap", action="store_true")
     gd.add_argument("--out", type=Path, required=True)
+    al = sub.add_parser("alerts", help="early alerts: lead time and nuke groups")
+    al.add_argument("--gold", type=Path, required=True, help="primary gold")
+    al.add_argument("--features", type=Path, required=True, help="early rows")
+    al.add_argument("--reference", type=Path, required=True, help="early reference")
+    al.add_argument("--threads", type=Path, required=True)
+    al.add_argument("--surges", type=Path, required=True)
+    al.add_argument("--sample-size", type=int, default=500)
+    al.add_argument("--seed", type=int, default=20261017)
+    al.add_argument("--cache", type=Path, required=True)
+    al.add_argument("--groups-out", type=Path, required=True, help="for nuke --groups")
     args = parser.parse_args(argv)
+    if args.command == "alerts":
+        return alerts(args)
 
     if args.command == "plan":
         surges = sample(
@@ -262,6 +350,50 @@ def main(argv: list[str] | None = None) -> int:
     args.out.write_text(json.dumps(out, indent=1))
     positives = sum(e["positive"] for e in out.values())
     print(f"{len(out)} gold surges, {positives} positive; sources {dict(sources)}")
+    return 0
+
+
+def alerts(args: argparse.Namespace) -> int:
+    """Write the early alerts' groups for nuke and print their lead time."""
+    entries: dict[str, Row] = json.loads(args.gold.read_text())
+    reference = Reference.from_json(args.reference.read_text())
+    groups = early_alerts(entries, _rows(args.features), reference)
+    args.groups_out.write_text(json.dumps(groups, indent=1))
+    true_alerts = sorted(k for k, v in groups.items() if v == "true alert")
+    surges = {
+        s.surge_id: s
+        for s in sample(
+            list(read_surges(args.surges)), size=args.sample_size, seed=args.seed
+        )
+    }
+    weights = contempt_weights(args.threads)
+    key: dict[str, Any] = json.loads((args.threads / "key.json").read_text())
+    shown = {entry["surge"]: entry["posts"] for entry in key.values()}
+
+    async def gather() -> list[tuple[float, float]]:
+        fetcher = Fetcher(Cache(args.cache), offline=True)
+        try:
+            out = []
+            for surge_id in true_alerts:
+                times = await post_times(shown.get(surge_id, {}), fetcher)
+                onset = surges[surge_id].onset
+                out.append(lead_shares(weights.get(surge_id, {}), times, onset))
+            return out
+        finally:
+            await fetcher.close()
+
+    shares = asyncio.run(gather())
+    after = sum(a for a, _ in shares)
+    total = sum(t for _, t in shares)
+    print(
+        f"early alerts: {len(groups)} ({len(true_alerts)} true); pooled contempt in "
+        f"true alerts {total:.1f}, after onset + 15 min {after:.1f}"
+        + (f" ({after / total:.0%})" if total else "")
+    )
+    per = sorted(a / t for a, t in shares if t)
+    if per:
+        middle = per[len(per) // 2]
+        print(f"per alert: median {middle:.0%}, range {per[0]:.0%}-{per[-1]:.0%}")
     return 0
 
 

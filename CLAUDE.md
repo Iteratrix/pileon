@@ -401,6 +401,12 @@ except for the Muse project); open a tunnel first:
       --measure primary|hostile|cascade [--include-overlap] --out gold.json`.
    5. `detector grade --reference lab/detector/{retro,early}-reference.json
       --features <early rows> --gold gold.json`.
+   6. `heldout alerts --gold gold.json --features <early rows> --reference
+      detector/early-reference.json --threads <dir> --surges S --cache ...
+      --groups-out groups.json` prints the lead time. Then `nuke --surges S
+      --labels ... --labeler gemma4:31b+contrast@confirmed --cache ...
+      --features ... --groups groups.json --offline` gives collateral for
+      true and false alerts.
 
    Never refreeze the references on held-out data.
 

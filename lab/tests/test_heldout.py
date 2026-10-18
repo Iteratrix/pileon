@@ -127,3 +127,37 @@ def test_gold_prefers_in_context_labels_and_weights_them(tmp_path: Path) -> None
     cascade, _ = gold(planned, None, rows, measure="cascade", include_overlap=True)
     assert cascade["judged"] == {"positive": False, "weight": 1.0}
     assert cascade["skipped"] == {"positive": True, "weight": 1.0}
+
+
+def test_early_alerts_and_lead_share_use_pooled_contempt(tmp_path: Path) -> None:
+    from datetime import timedelta  # noqa: PLC0415 - local to this test
+
+    from pileon_lab.heldout import contempt_weights, early_alerts, lead_shares  # noqa: PLC0415
+
+    rows = {
+        "hot": row("hot", hot=True),
+        "cold": row("cold"),
+        "hit": row("hit", hot=True),
+    }
+    entries = {
+        "hot": {"positive": False, "weight": 1.0},
+        "cold": {"positive": True, "weight": 1.0},
+        "hit": {"positive": True, "weight": 4.0},
+    }
+    assert early_alerts(entries, rows, ALERTING) == {
+        "hot": "false alert",
+        "hit": "true alert",
+    }
+    key = {"S01": {"surge": "hit", "posts": {"P1": "at://a", "P2": "at://b"}}}
+    (tmp_path / "key.json").write_text(json.dumps(key))
+    calls = {"opus": ["hostile", "hostile"], "fable": ["hostile", "neutral"]}
+    for judge, labels in calls.items():
+        lines = [
+            {"surge": "S01", "post": f"P{i}", "label": label, "aimed": "target"}
+            for i, label in enumerate(labels, start=1)
+        ]
+        (tmp_path / f"{judge}.jsonl").write_text("\n".join(map(json.dumps, lines)))
+    weights = contempt_weights(tmp_path)
+    assert weights == {"hit": {"at://a": 1.0, "at://b": 0.5}}
+    times = {"at://a": LATE + timedelta(minutes=5), "at://b": LATE + timedelta(hours=2)}
+    assert lead_shares(weights["hit"], times, LATE) == (0.5, 1.5)

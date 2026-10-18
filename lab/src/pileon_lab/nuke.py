@@ -219,10 +219,15 @@ def liked_before_harm(
     return authors, liked, liked_first
 
 
+CLASS_ORDER = ("pileon", "crossfire", "rally", "spotlight")
+
+
 def report(
     incidents: list[Incident],
     classes: dict[str, str],
     evidence: dict[str, Evidence],
+    *,
+    order: tuple[str, ...] = CLASS_ORDER,
 ) -> list[str]:
     tallies: dict[tuple[str, str, timedelta], Tally] = defaultdict(Tally)
     skipped = 0
@@ -247,7 +252,7 @@ def report(
         f"harm authors {authors}: liked the dunk {_share(liked, authors)}, "
         f"liked it before their first harm reply {_share(first, authors)}"
     )
-    for cls in ("pileon", "crossfire", "rally", "spotlight"):
+    for cls in order:
         for delay in DELAYS:
             minutes = int(delay.total_seconds() // 60)
             first_cell = tallies.get((cls, YIELDS[0], delay))
@@ -328,6 +333,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hostile-at", type=float, default=0.10)
     parser.add_argument("--support-at", type=float, default=0.25)
     parser.add_argument("--offline", action="store_true")
+    parser.add_argument(
+        "--groups",
+        type=Path,
+        help="JSON {incident id: group} to report by instead of surge class",
+    )
     parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
 
@@ -343,6 +353,11 @@ def main(argv: list[str] | None = None) -> int:
         for r in rows
     }
     followers = {r["incident_id"]: r.get("amplifier_followers") for r in rows}
+    order: tuple[str, ...] = CLASS_ORDER
+    if args.groups is not None:
+        groups: dict[str, str] = json.loads(args.groups.read_text())
+        classes = {k: v for k, v in groups.items() if k in classes}
+        order = tuple(sorted(set(classes.values())))
     if args.surges is not None:
         if args.labels is None:
             parser.error("--surges needs --labels")
@@ -370,7 +385,7 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             await fetcher.close()
 
-    text = "\n".join(report(incidents, classes, asyncio.run(run())))
+    text = "\n".join(report(incidents, classes, asyncio.run(run()), order=order))
     if args.out is not None:
         args.out.write_text(text + "\n")
     print(text)
