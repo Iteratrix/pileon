@@ -1008,10 +1008,26 @@ def _quotas(text: str) -> dict[str, int]:
     return out
 
 
-def packet(args: argparse.Namespace) -> None:
-    """Fill each stratum's quota with surges whose target post survives."""
+def _pools(args: argparse.Namespace) -> tuple[dict[str, list[str]], dict[str, int]]:
+    """Surges to build per stratum, and how many of each to take."""
+    if args.plan:
+        planned: dict[str, Any] = json.loads(args.plan.read_text())
+        pools: dict[str, list[str]] = {}
+        for surge_id in sorted(planned):
+            kind = planned[surge_id]["stratum"]
+            if kind != "unsampled":
+                pools.setdefault(kind, []).append(surge_id)
+        return pools, {kind: len(members) for kind, members in pools.items()}
+    if not (args.features and args.screen_features):
+        msg = "give --plan, or --features and --screen-features"
+        raise SystemExit(msg)
     strata = stratify(_rows(args.features), _rows(args.screen_features))
-    pools = candidates(strata, seed=args.seed)
+    return candidates(strata, seed=args.seed), args.quotas
+
+
+def packet(args: argparse.Namespace) -> None:
+    """Build every planned surge, or fill each interim stratum's quota."""
+    pools, quotas = _pools(args)
     chosen = sample(
         list(read_surges(args.surges)),
         size=args.sample_size,
@@ -1025,10 +1041,10 @@ def packet(args: argparse.Namespace) -> None:
         built: list[tuple[str, Thread]] = []
         skipped: Counter[str] = Counter()
         try:
-            for stratum in STRATA:
+            for stratum, members in pools.items():
                 taken = 0
-                for surge_id in pools[stratum]:
-                    if taken >= args.quotas[stratum]:
+                for surge_id in members:
+                    if taken >= quotas[stratum]:
                         break
                     surge = surges.get(surge_id)
                     if surge is None:
@@ -1071,8 +1087,9 @@ def main(argv: list[str] | None = None) -> int:
     pk = sub.add_parser("packet")
     pk.add_argument("--surges", type=Path, required=True)
     pk.add_argument("--cache", type=Path, required=True)
-    pk.add_argument("--features", type=Path, required=True, help="confirmed labels")
-    pk.add_argument("--screen-features", type=Path, required=True, help="screen only")
+    pk.add_argument("--features", type=Path, help="confirmed labels")
+    pk.add_argument("--screen-features", type=Path, help="screen only")
+    pk.add_argument("--plan", type=Path, help="a held-out plan (heldout plan)")
     pk.add_argument("--sample-size", type=int, default=500)
     pk.add_argument("--per-surge", type=int, default=30)
     pk.add_argument("--seed", type=int, default=20261017)

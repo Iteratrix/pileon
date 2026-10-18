@@ -386,11 +386,23 @@ except for the Muse project); open a tunnel first:
    measures. `threads run` adds a local model's verdicts and labels
    (`--num-ctx 16384`); never run it while Stage C labels on the same host.
 6. Grade the frozen detectors exactly as `lab/PREREGISTRATION.md` says:
-   `pileon_lab.detector early` adds the 15-minute signals to feature rows,
-   then run `detector grade --reference lab/detector/{retro,early}-reference.json
-   --features ... --gold <gold.json>`. The gold maps each id to `{"positive",
-   "weight"}`, the inverse-probability weight. Never refreeze the references
-   on held-out data.
+   1. `pileon_lab.detector early --surges S --cache ... --features
+      <confirmed features> --out <early rows>` adds the 15-minute signals.
+   2. `pileon_lab.heldout plan --surges S --features <early rows>
+      --screen-features <screen-only features> --references
+      detector/retro-reference.json detector/early-reference.json
+      --interim-surges ../data/surges/interim.jsonl.zst --study-db
+      ../private/qp-pileon/data/crawl.db --out plan.json` assigns each
+      surge a stratum (screen, alert, a seeded random 25%) and a weight,
+      flags overlap with the dev data, and prints attrition.
+   3. `threads packet --plan plan.json --surges S --cache ... --dir ...`,
+      then judge the packet as in step 5.
+   4. `heldout gold --plan plan.json --threads <dir> --features <early rows>
+      --measure primary|hostile|cascade [--include-overlap] --out gold.json`.
+   5. `detector grade --reference lab/detector/{retro,early}-reference.json
+      --features <early rows> --gold gold.json`.
+
+   Never refreeze the references on held-out data.
 
 Hydrated post text sits only in the response cache (`data/lab/cache.db`);
 purge it after labeling runs if retention matters.
