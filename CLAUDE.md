@@ -218,6 +218,11 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   and labels are fine; auto-replies are not.
 - Valence labeling needs the parent/quoted post as context (41% of labels
   flipped without it, per the study).
+- Decision rights (owner, 2026-10-17): technical and process calls inside the
+  owner's direction (labeler choice, relabels, judge packets, what runs on
+  muse-mini) are Claude's to make and report. When unsure, ask a Fable agent
+  for a second opinion before asking the owner. The owner decides product
+  direction and anything irreversible, external, or shared.
 - Gold checks for valence are done by two LLM judges, an Opus-model agent and
   a Fable agent, not by the owner (decided 2026-10-16). Each judge must first
   match the 184 existing human gold labels from the private study at least as
@@ -256,6 +261,23 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   "reason" prompt variants did not help any model on human gold. gemma4 agrees
   with the judges best but with the humans less: judge consensus alone would
   have picked a different winner.
+- Network round (2026-10-17; interim network packet plus the study packet;
+  every chat config gets the bulk pipeline's direction pass, so the fair
+  incumbent is llama's two-pass pipeline). Weighted kappa, human gold / study
+  consensus dev / network dev / network test: gemma4:31b+contrast with the
+  direction pass 0.519 / 0.674 / 0.559 / 0.579; llama3.3:70b+v2 two-pass
+  0.488 / 0.468 / 0.306 / 0.459 (one pass 0.535 on human gold);
+  qwen3.8:27b-mlx+v2 two-pass 0.405 / 0.647 / 0.468 / 0.674; clef gated
+  0.213 / 0.397 / 0.614 / 0.525 (it also folds real attacks on the target).
+  gemma4+contrast is the only config near the top on all four and beats the
+  two-pass incumbent by 0.031 on human gold, so it labels Stage C and the
+  interim sample (Claude's call, per the owner's delegation of labeler
+  choices). ~3 s/item; ~1% parse errors, all on replies both judges call
+  benign. The contrast prompt hurts llama (human gold 0.482, two-pass 0.450;
+  network dev 0.18). A median of clef gated, gemma4 and qwen3.8 is best on
+  network (0.644 / 0.693) but 0.45 on human gold and ~44 h per Stage C;
+  clef's P(hostile+) x P(aimed) ranks network hostility at AUC 0.954.
+  Revisit both once a surge-level judge packet exists.
 
 ## Surge detector status (2026-10-16)
 
@@ -284,9 +306,10 @@ except for the Muse project); open a tunnel first:
 1. Label a sample: `uv run python -m pileon_lab.label --surges S --cache
    ../data/lab/cache.db --labels ../data/lab/labels.db --sample-size 500
    --per-surge 30` (stratified by size, warm-up excluded; resumable). The
-   default labeler is `llama3.3:70b` + v2 (tournament winner, see
-   Constraints), ~6 s/item, so 500 surges (~14k items) take ~23 h;
-   `qwen3.5:27b-mlx` + v2 is ~2.6 s/item if speed matters more than accuracy.
+   default labeler is `gemma4:31b` + contrast (network round winner, see
+   Constraints), ~3 s/item, so 500 surges (~13k items) take ~14 h with the
+   direction pass; `qwen3.8:27b-mlx` + v2 is ~1.6 s/item if speed matters
+   more than accuracy.
 2. Features: `uv run python -m pileon_lab.network --surges S --cache ...
    --labels ... --enrich --out ../data/lab/network-features.jsonl` (same
    sample/seed), then `pileon_lab.sweep --features ... --template

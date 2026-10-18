@@ -249,8 +249,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=20261017)
     parser.add_argument("--include-warmup", action="store_true")
     parser.add_argument("--ollama", default="http://localhost:11435")
-    parser.add_argument("--model", default="llama3.3:70b")
-    parser.add_argument("--variant", default="v2", choices=sorted(VARIANTS))
+    parser.add_argument("--model", default="gemma4:31b")
+    parser.add_argument("--variant", default="contrast", choices=sorted(VARIANTS))
     parser.add_argument("--hydrate-only", action="store_true")
     args = parser.parse_args(argv)
 

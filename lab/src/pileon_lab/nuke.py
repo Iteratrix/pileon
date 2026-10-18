@@ -318,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--study-db", type=Path)
     source.add_argument("--surges", type=Path, help="network surges (with --labels)")
     parser.add_argument("--labels", type=Path)
-    parser.add_argument("--labeler", default="llama3.3:70b+v2")
+    parser.add_argument("--labeler", default="gemma4:31b+contrast")
     parser.add_argument("--sample-size", type=int, default=500)
     parser.add_argument("--seed", type=int, default=20261017)
     parser.add_argument("--include-warmup", action="store_true")
