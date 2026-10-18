@@ -523,3 +523,27 @@ surges enriched for them. The detector prototype (`pileon_lab.detector`,
 four families of structural signals, frozen references in `lab/detector/`)
 scores AUC 0.93 against interim cascade labels, but that gold is now
 suspect; the held-out grade decides.
+
+Held-out grade (2026-10-18; `lab/PREREGISTRATION.md` and its amendment 1;
+details in `private/NOTES.md`). Both judges read 521 held-out surges as whole
+threads (106 blind agents; holistic pile-on kappa 0.97, label weighted kappa
+0.93).
+- **Stage C sample** (159 judged surges with no dev overlap, 8 pile-ons in
+  context): the frozen retro detector scores AUC 0.977 (95% 0.95-0.99) and
+  the early one 0.888 (0.78-0.97), so it replicates strongly and early holds.
+  With only 8 positives, both are provisional. At the frozen 10% cutoff,
+  precision is 0.16 and recall 1.00. 87% of the contempt in true early alerts
+  arrives after the alert.
+- **The trawl** (all 62,792 eligible held-out surges, tiered by a cheap
+  structural score of reach and approval alone): in-context pile-on share is
+  85% (79 of 93) in the top 0.5%, 56% in the next 1.5%, 10% in the next 8%,
+  and 2% in the rest. The rally tier is 0% pile-on and 88% rally. The trend
+  test gives p < 1e-15, enrichment is 24x over the frame rate of 3.6%, and
+  the tag meets the notification-grade bar.
+- So structural proxies find pile-ons and rallies without text. Pile-ons
+  cluster in one niche: a much bigger quoter than target, few likes per
+  reply, and a dunk that out-likes the target post.
+- In the trawl, the full four-family detector does worse than the cheap
+  reach and approval score (weighted AUC 0.65, 95% 0.39-1.00), so volume and
+  audience may dilute it. A reach-and-approval detector should be frozen and
+  tested on a fresh frame.
