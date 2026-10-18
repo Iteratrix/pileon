@@ -543,7 +543,10 @@ threads (106 blind agents; holistic pile-on kappa 0.97, label weighted kappa
 - So structural proxies find pile-ons and rallies without text. Pile-ons
   cluster in one niche: a much bigger quoter than target, few likes per
   reply, and a dunk that out-likes the target post.
-- In the trawl, the full four-family detector does worse than the cheap
-  reach and approval score (weighted AUC 0.65, 95% 0.39-1.00), so volume and
-  audience may dilute it. A reach-and-approval detector should be frozen and
-  tested on a fresh frame.
+- The trawl measures precision per tier well, but it cannot rank detectors.
+  One bottom-tier pile-on carries about 40% of the weight, so every weighted
+  AUC there has a 95% interval about 0.5 wide: four families 0.65, the cheap
+  two-family score 0.71. On Stage C, judged on the same surges, the frozen
+  four-family detector (0.977) beats the two-family score (0.941; approval
+  alone 0.995). So the frozen detector stays, and the cheap score serves as
+  a pre-filter. (Exploratory comparison, not pre-registered.)
