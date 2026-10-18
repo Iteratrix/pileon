@@ -67,7 +67,31 @@ def _counts(post: dict[str, Any]) -> PostCounts:
 
 
 async def post_counts(fetcher: Fetcher, uris: list[str]) -> dict[str, PostCounts]:
-    """Return current engagement counts for each URI that still resolves.
+    """Return current engagement counts for each URI that still resolves."""
+    return {
+        uri: _counts(post) for uri, post in (await post_views(fetcher, uris)).items()
+    }
+
+
+async def post_thread(
+    fetcher: Fetcher, uri: str, *, depth: int, parent_height: int
+) -> dict[str, Any] | None:
+    """Return the thread view rooted at `uri`, or `None` if it is gone or blocked."""
+    response = await fetcher.xrpc(
+        APPVIEW,
+        "app.bsky.feed.getPostThread",
+        [("uri", uri), ("depth", str(depth)), ("parentHeight", str(parent_height))],
+    )
+    thread = (response.body or {}).get("thread") if response.ok else None
+    if not isinstance(thread, dict) or not str(thread.get("$type", "")).endswith(
+        "#threadViewPost"
+    ):
+        return None
+    return thread
+
+
+async def post_views(fetcher: Fetcher, uris: list[str]) -> dict[str, dict[str, Any]]:
+    """Return the AppView's post view for each URI that still resolves.
 
     Served from the per-post index when known; only unknown URIs are fetched,
     so the result never depends on how callers batch their requests.
@@ -92,7 +116,7 @@ async def post_counts(fetcher: Fetcher, uris: list[str]) -> dict[str, PostCounts
                 fetcher.cache.put_posts(response.body.get("posts", []), batch)
         fetcher.cache.commit()
         known = fetcher.cache.get_posts(unique)
-    return {uri: _counts(post) for uri, post in known.items() if post is not None}
+    return {uri: post for uri, post in known.items() if post is not None}
 
 
 async def relationships(
