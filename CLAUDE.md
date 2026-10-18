@@ -494,7 +494,9 @@ packets never show (they carry the target post's text only). So
 reply-by-reply labels are not valid surge gold. The pre-registration's
 primary gold is the pooled in-context class, and the cascade is now only the
 screen. gemma4 as a holistic judge repeats the screenshot error (kappa 0
-against the judges). True pile-ons look rare network-wide: 0 or 1 of 28
+against the judges), and its in-context post labels agree with the judges at
+weighted kappa 0.38 (Opus) and 0.33 (Fable), against 0.71 between the
+judges, so in-context gold needs the judges. True pile-ons look rare network-wide: 0 or 1 of 28
 surges enriched for them. The detector prototype (`pileon_lab.detector`,
 four families of structural signals, frozen references in `lab/detector/`)
 scores AUC 0.93 against interim cascade labels, but that gold is now
