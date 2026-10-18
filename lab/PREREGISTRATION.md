@@ -191,10 +191,13 @@ Secondary:
    recall at the 10% cutoff.
 4. Lead time: for early alerts that are true pile-ons, the share of their
    eventual contempt replies that arrive after onset + 15 min (what a defense
-   armed at the alert could still stop).
+   armed at the alert could still stop). Contempt is counted as in the
+   pooled class: each judge's in-context contempt call counts one half. A
+   post's time is its `createdAt`.
 5. Collateral: for early alerts, the supportive replies after +15 min that
    would be stopped by blocking the quoter's audience (`nuke`'s `audience`
-   yield), reported separately for true and false alerts.
+   yield on `gemma4:31b+contrast@confirmed` labels), reported separately for
+   true and false alerts.
 6. Labeler error: the judges' agreement, and the decoys' miss estimate and its
    interval, reported next to every number above.
 
