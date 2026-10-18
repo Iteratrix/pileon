@@ -132,6 +132,29 @@ class LabelStore:
         )
         self._conn.commit()
 
+    def clone(self, source: str, dest: str) -> None:
+        """Copy every label and direction of `source` to the labeler `dest`."""
+        self._conn.execute("DELETE FROM labels WHERE labeler = ?", (dest,))
+        self._conn.execute("DELETE FROM directions WHERE labeler = ?", (dest,))
+        self._conn.execute(
+            "INSERT INTO labels SELECT item, ?, surge, label, confidence, raw "
+            "FROM labels WHERE labeler = ?",
+            (dest, source),
+        )
+        self._conn.execute(
+            "INSERT INTO directions SELECT item, ?, direction, raw "
+            "FROM directions WHERE labeler = ?",
+            (dest, source),
+        )
+        self._conn.commit()
+
+    def set_label(self, uri: str, labeler: str, label: str) -> None:
+        self._conn.execute(
+            "UPDATE labels SET label = ? WHERE item = ? AND labeler = ?",
+            (label, uri, labeler),
+        )
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()
 

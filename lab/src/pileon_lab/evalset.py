@@ -61,6 +61,11 @@ def write_packet(
     take_hostile = min(len(hostile), size // 2)
     chosen = hostile[:take_hostile] + other[: size - take_hostile]
     rng.shuffle(chosen)
+    return len(write_items(chosen, outdir))
+
+
+def write_items(chosen: list[Item], outdir: Path) -> dict[str, str]:
+    """Write `chosen` as a blind judge packet; return the id -> URI key."""
     outdir.mkdir(parents=True, exist_ok=True)
     key = {}
     with (outdir / "packet.jsonl").open("w") as packet:
@@ -81,7 +86,46 @@ def write_packet(
             )
     (outdir / "key.json").write_text(json.dumps(key, indent=1))
     (outdir / "codebook.md").write_text(codebook_text())
-    return len(chosen)
+    return key
+
+
+def sampled_items(  # noqa: PLR0913 - mirrors the labeler CLI
+    surges: Path,
+    cache: Path,
+    *,
+    sample_size: int,
+    per_surge: int,
+    seed: int,
+    include_warmup: bool,
+) -> list[Item]:
+    """The labeler's items for the same sample, hydrated from the cache only."""
+    chosen = sample(
+        list(read_surges(surges)),
+        size=sample_size,
+        seed=seed,
+        include_warmup=include_warmup,
+    )
+
+    async def fetch() -> list[Item]:
+        fetcher = Fetcher(Cache(cache), offline=True)
+        try:
+            return await hydrate(chosen, fetcher, per_surge=per_surge, seed=seed)
+        finally:
+            await fetcher.close()
+
+    return asyncio.run(fetch())
+
+
+def add_sample_args(parser: argparse.ArgumentParser) -> None:
+    """The labeler's sample arguments, shared by every packet builder."""
+    parser.add_argument("--surges", type=Path, required=True)
+    parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument("--labels", type=Path, required=True)
+    parser.add_argument("--labeler", default="gemma4:31b+contrast")
+    parser.add_argument("--sample-size", type=int, default=500)
+    parser.add_argument("--per-surge", type=int, default=30)
+    parser.add_argument("--seed", type=int, default=20261017)
+    parser.add_argument("--include-warmup", action="store_true")
 
 
 Labeler = Callable[[dict[str, str]], dict[str, object]]
@@ -315,14 +359,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     pk = sub.add_parser("packet")
-    pk.add_argument("--surges", type=Path, required=True)
-    pk.add_argument("--cache", type=Path, required=True)
-    pk.add_argument("--labels", type=Path, required=True)
-    pk.add_argument("--labeler", default="gemma4:31b+contrast")
-    pk.add_argument("--sample-size", type=int, default=500)
-    pk.add_argument("--per-surge", type=int, default=30)
-    pk.add_argument("--seed", type=int, default=20261017)
-    pk.add_argument("--include-warmup", action="store_true")
+    add_sample_args(pk)
     pk.add_argument("--size", type=int, default=300)
     pk.add_argument("--dir", type=Path, required=True)
     rn = sub.add_parser("run")
@@ -349,23 +386,14 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
 
     if args.command == "packet":
-        surges = sample(
-            list(read_surges(args.surges)),
-            size=args.sample_size,
+        items = sampled_items(
+            args.surges,
+            args.cache,
+            sample_size=args.sample_size,
+            per_surge=args.per_surge,
             seed=args.seed,
             include_warmup=args.include_warmup,
         )
-
-        async def fetch() -> list[Item]:
-            fetcher = Fetcher(Cache(args.cache), offline=True)
-            try:
-                return await hydrate(
-                    surges, fetcher, per_surge=args.per_surge, seed=args.seed
-                )
-            finally:
-                await fetcher.close()
-
-        items = asyncio.run(fetch())
         store = LabelStore(args.labels)
         labels = store.labeled(args.labeler)
         store.close()

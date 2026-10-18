@@ -278,6 +278,14 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   network (0.644 / 0.693) but 0.45 on human gold and ~44 h per Stage C;
   clef's P(hostile+) x P(aimed) ranks network hostility at AUC 0.954.
   Revisit both once a surge-level judge packet exists.
+- gemma4 is a screen, not gold (2026-10-17). On the network packet its
+  author-directed hostile calls are loose: 11 of 26 are consensus-hostile
+  (16 of 36 counting either judge), recall 11 of 12, and its confidence is
+  flat (~0.9 on right and wrong calls alike). Best hostile F1 of any config
+  (0.58; llama two-pass 0.39), so no swap helps; instead the two judges
+  confirm every hostile call (`pileon_lab.confirm`, runbook step 4), which
+  costs ~5% of items. Network pages and nuke runs use the confirmed labeler
+  `gemma4:31b+contrast@confirmed`.
 
 ## Surge detector status (2026-10-16)
 
@@ -334,6 +342,18 @@ except for the Muse project); open a tunnel first:
    challengers compete with the bulk pipeline's two passes, not one.
    `CONFIGS="model variant,..." lab/scripts/tournament.sh DIR` runs a chosen
    subset on any packet, direction passes included.
+4. Confirm the screen's hostile calls: `uv run python -m pileon_lab.confirm
+   packet --surges S --cache ... --labels ... [--sample-size N] --judged
+   <judged packet dirs> --dir ../data/lab/confirm-<run>` writes every
+   unjudged author-directed hostile call plus 120 random decoys (blind;
+   `strata.json` says which is which). Run the two judges on it with fresh
+   context (a general-purpose agent inheriting the session's Opus model, and
+   a Fable agent), never a fork: a fork knows the packet is enriched. Then
+   `confirm merge --labels ... --judged <every judged dir>` stores
+   `<labeler>@confirmed` (each judged call takes the median of screen and
+   judges) and prints the confirmation rate and the decoy miss estimate.
+   Rebuild features (step 2) and rerun `nuke` with `--labeler
+   gemma4:31b+contrast@confirmed`.
 
 Hydrated post text sits only in the response cache (`data/lab/cache.db`);
 purge it after labeling runs if retention matters.
