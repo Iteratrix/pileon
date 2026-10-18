@@ -58,7 +58,9 @@ nothing that names the study's amplifier or targets belongs in tracked files.
      `detachedEmbeddingUris`), pending what replay validates. Recorded
      postgates carry `detached` URIs and `quotes_disabled` with times, so
      targets' real detaches are the natural experiment. A reply filter by
-     text label was proposed and parked.
+     text label was proposed and parked. Owner's decision (2026-10-18): the
+     response to an alert is a user setting, and the default is a
+     notification with a one-tap detach. Auto-detach is opt-in.
 
    Owner's direction (2026-10-17): the production system relies entirely on
    non-sentiment proxies (structure, approval, graph, timing). Text labels
@@ -560,3 +562,17 @@ threads (106 blind agents; holistic pile-on kappa 0.97, label weighted kappa
   - Network-wide, unlike in the study, cutting the quote's audience is a
     low-collateral defense. Detaching the quote is the softer form of that
     cut, so 58% is its upper bound.
+- Detaches as targets do them today (natural experiment,
+  `lab/scripts/natural_detach.py`; recorded postgates; surges matched on the
+  previous two hours and cumulative arrivals; placebo 1.01):
+  - After 828 mid-surge detaches, arrivals over the next 6 hours run at 1.03
+    (95% 0.95-1.11) of matched surges.
+  - Detaching the top quote gives 0.97 (0.79-1.23, n 98), and replies alone
+    give 1.11 (1.02-1.21).
+  - Disabling quotes mid-surge gives 1.08 (1.03-1.13), or 0.91 (0.83-1.00)
+    when done more than 2 hours in.
+  - The median detach comes 6 hours after onset.
+  - So a detach does not slow the crowd already there. The quoter's audience
+    keeps arriving, and only blocking or gating that audience removes it. The
+    outcome here is volume, not harm, and a detach armed at +15 min is
+    untested.
