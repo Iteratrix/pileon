@@ -550,3 +550,13 @@ threads (106 blind agents; holistic pile-on kappa 0.97, label weighted kappa
   four-family detector (0.977) beats the two-family score (0.941; approval
   alone 0.995). So the frozen detector stays, and the cheap score serves as
   a pre-filter. (Exploratory comparison, not pre-registered.)
+- Defenses replayed on the judged held-out surges, with in-context labels and
+  armed 15 minutes after onset:
+  - On 88 pile-ons, blocking the quoter's audience stops 58% of later harm
+    and blocks 17% of supporters, but there are only 30 supporters to count.
+  - In 146 rallies, the same block reaches only 5% of supporters.
+  - A followers-only gate stops 99.7% of pile-on harm but blocks 77% of
+    supporters (59% in rallies).
+  - Network-wide, unlike in the study, cutting the quote's audience is a
+    low-collateral defense. Detaching the quote is the softer form of that
+    cut, so 58% is its upper bound.
