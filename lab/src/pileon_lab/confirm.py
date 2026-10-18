@@ -62,16 +62,20 @@ def judged_items(dirs: Sequence[Path]) -> dict[str, tuple[str, ...]]:
     return out
 
 
-def decoy_uris(dirs: Sequence[Path]) -> set[str]:
-    """URIs drawn as random decoys by `packet` (not by any stratified packet)."""
-    out = set()
-    for d in dirs:
-        strata = d / "strata.json"
-        if not strata.exists():
-            continue
-        key: dict[str, str] = json.loads((d / "key.json").read_text())
+DECOY_KINDS = ("toxic", "decoy")
+"""Decoy strata: the most toxic-looking unflagged items, then random others."""
+
+
+def decoy_uris(directory: Path) -> dict[str, set[str]]:
+    """URIs `packet` drew as decoys into `directory`, by stratum."""
+    out: dict[str, set[str]] = {kind: set() for kind in DECOY_KINDS}
+    strata = directory / "strata.json"
+    if strata.exists():
+        key: dict[str, str] = json.loads((directory / "key.json").read_text())
         kinds: dict[str, str] = json.loads(strata.read_text())
-        out |= {key[i] for i, kind in kinds.items() if kind == "decoy"}
+        for item_id, kind in kinds.items():
+            if kind in out:
+                out[kind].add(key[item_id])
     return out
 
 
@@ -84,19 +88,41 @@ def write_confirm_packet(  # noqa: PLR0913 - one call site, all keywords
     judged: set[str],
     decoys: int,
     seed: int,
+    toxicity: dict[str, float] | None = None,
+    toxic: int = 0,
+    toxic_pool: int = 0,
 ) -> Counter[str]:
-    """Write every unjudged hostile call plus `decoys` random other items."""
+    """Write every unjudged hostile call plus two strata of decoys.
+
+    With `toxicity` scores, the `toxic_pool` highest-scoring unflagged items
+    form the toxic stratum and `toxic` of them are drawn; `decoys` more come
+    at random from the rest. `pools.json` records both strata's sizes, so
+    `merge` can weight each stratum's miss rate by its size.
+    """
     rng = random.Random(seed)  # noqa: S311 - reproducible sampling
     hits = flagged(labels, directed)
     fresh = list({i.uri: i for i in items if i.uri not in judged}.values())
     calls = [i for i in fresh if i.uri in hits]
     pool = [i for i in fresh if i.uri not in hits and labels.get(i.uri) in V2_LABELS]
-    rng.shuffle(pool)
-    chosen = calls + pool[:decoys]
+    scores = toxicity or {}
+    top = (
+        sorted(pool, key=lambda i: -scores.get(i.uri, 0.0))[:toxic_pool]
+        if scores
+        else []
+    )
+    top_uris = {i.uri for i in top}
+    rest = [i for i in pool if i.uri not in top_uris]
+    rng.shuffle(top)
+    rng.shuffle(rest)
+    chosen = calls + top[:toxic] + rest[:decoys]
     rng.shuffle(chosen)
     key = write_items(chosen, outdir)
-    strata = {i: "flagged" if uri in hits else "decoy" for i, uri in key.items()}
+    kind_of = {i.uri: "flagged" for i in calls} | {i.uri: "toxic" for i in top}
+    strata = {i: kind_of.get(uri, "decoy") for i, uri in key.items()}
     (outdir / "strata.json").write_text(json.dumps(strata, indent=1))
+    (outdir / "pools.json").write_text(
+        json.dumps({"toxic": len(top), "decoy": len(rest)})
+    )
     return Counter(strata.values())
 
 
@@ -147,23 +173,68 @@ def merge(
         ),
         "  judged calls now: " + ", ".join(f"{k} {v}" for k, v in now),
     ]
-    decoys = [u for u in decoy_uris(dirs) if u in judged and u in labels]
-    if decoys:
-        either = sum(any(j in HOSTILE for j in judged[u]) for u in decoys)
-        agreed = sum(all(j in HOSTILE for j in judged[u]) for u in decoys)
-        unflagged = sum(
-            1 for u, label in labels.items() if u not in hits and label in V2_LABELS
-        )
-        lo, hi = wilson(agreed, len(decoys))
-        lines.append(
-            f"  decoys: {len(decoys)} judged; both judges hostile {agreed}, "
-            f"either {either}; misses among {unflagged} unflagged items "
-            f"~{agreed / len(decoys) * unflagged:.0f} "
-            f"(95% CI {lo * unflagged:.0f}-{hi * unflagged:.0f})"
-        )
+    unflagged = sum(
+        1 for u, label in labels.items() if u not in hits and label in V2_LABELS
+    )
+    for directory in dirs:
+        lines += miss_estimate(directory, judged, labels, unflagged=unflagged)
     if len(medians) < len(hits):
         lines.append(f"  {len(hits) - len(medians)} calls not yet judged keep it")
     return dest, lines
+
+
+def miss_estimate(
+    directory: Path,
+    judged: dict[str, tuple[str, ...]],
+    labels: dict[str, str],
+    *,
+    unflagged: int,
+) -> list[str]:
+    """Hostile replies the screen missed, estimated from one packet's decoys.
+
+    Each stratum's rate (both judges hostile) is scaled by the stratum's size
+    from `pools.json`; a packet without it has random decoys over every
+    unflagged item. The interval adds the strata's Wilson bounds, which is
+    conservative.
+    """
+    drawn = decoy_uris(directory)
+    pools_path = directory / "pools.json"
+    pools: dict[str, int] = (
+        json.loads(pools_path.read_text())
+        if pools_path.exists()
+        else {"toxic": 0, "decoy": unflagged}
+    )
+    lines, total, low, high = [], 0.0, 0.0, 0.0
+    for kind in DECOY_KINDS:
+        sample = [u for u in drawn[kind] if u in judged and u in labels]
+        if not sample:
+            continue
+        agreed = sum(all(j in HOSTILE for j in judged[u]) for u in sample)
+        either = sum(any(j in HOSTILE for j in judged[u]) for u in sample)
+        size = pools.get(kind, 0)
+        lo, hi = wilson(agreed, len(sample))
+        total += agreed / len(sample) * size
+        low += lo * size
+        high += hi * size
+        lines.append(
+            f"  {directory.name} {kind} decoys: {len(sample)} judged of {size}; "
+            f"both judges hostile {agreed}, either {either}"
+        )
+    if lines:
+        lines.append(
+            f"  {directory.name} misses ~{total:.0f} (95% CI {low:.0f}-{high:.0f})"
+        )
+    return lines
+
+
+def toxicity_scores(items: list[Item]) -> dict[str, float]:
+    """toxic-bert's insult probability per item (needs the `baselines` group)."""
+    from pileon_lab.baselines import BASELINES, run_baseline  # noqa: PLC0415
+
+    insult = next(b for b in BASELINES if b.name == "toxic-bert insult")
+    unique = list({i.uri: i for i in items}.values())
+    scores = run_baseline(insult, [i.text for i in unique])
+    return {i.uri: s for i, s in zip(unique, scores, strict=True)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -172,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
     pk = sub.add_parser("packet")
     add_sample_args(pk)
     pk.add_argument("--decoys", type=int, default=120)
+    pk.add_argument("--toxic", type=int, default=80, help="0 skips the toxic stratum")
+    pk.add_argument("--toxic-pool", type=int, default=400)
     pk.add_argument("--judged", type=Path, nargs="*", default=[])
     pk.add_argument("--dir", type=Path, required=True)
     mg = sub.add_parser("merge")
@@ -191,18 +264,29 @@ def main(argv: list[str] | None = None) -> int:
                 seed=args.seed,
                 include_warmup=args.include_warmup,
             )
+            labels = store.labeled(args.labeler)
+            directed = store.directed(args.labeler)
+            hits = flagged(labels, directed)
+            toxicity = (
+                toxicity_scores([i for i in items if i.uri not in hits])
+                if args.toxic
+                else None
+            )
             counts = write_confirm_packet(
                 items,
-                store.labeled(args.labeler),
-                store.directed(args.labeler),
+                labels,
+                directed,
                 args.dir,
                 judged=set(judged_items(args.judged)),
                 decoys=args.decoys,
                 seed=args.seed,
+                toxicity=toxicity,
+                toxic=args.toxic,
+                toxic_pool=args.toxic_pool,
             )
             print(
-                f"wrote {counts['flagged']} hostile calls and "
-                f"{counts['decoy']} decoys to {args.dir}",
+                f"wrote {counts['flagged']} hostile calls, {counts['toxic']} toxic "
+                f"and {counts['decoy']} random decoys to {args.dir}",
                 file=sys.stderr,
             )
         else:

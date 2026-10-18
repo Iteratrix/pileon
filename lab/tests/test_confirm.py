@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from pileon_lab.confirm import median, merge, wilson, write_confirm_packet
+from pileon_lab.confirm import (
+    median,
+    merge,
+    miss_estimate,
+    wilson,
+    write_confirm_packet,
+)
 from pileon_lab.label import Item, LabelStore
 
 if TYPE_CHECKING:
@@ -98,5 +104,21 @@ def test_merge_stores_confirmed_labeler(tmp_path: Path) -> None:
     assert store.labeled(screen)["at://b"] == "hostile"
     assert "kept hostile (at least one judge agrees): 1" in lines[1]
     assert "both judges hostile 1" in lines[3]
-    assert "1 calls not yet judged" in lines[4]
+    assert "confirm misses ~2" in lines[4]
+    assert "1 calls not yet judged" in lines[5]
     store.close()
+
+
+def test_miss_estimate_weights_each_decoy_stratum_by_its_size(tmp_path: Path) -> None:
+    key = {f"n{i}": f"at://{i}" for i in range(6)}
+    (tmp_path / "key.json").write_text(json.dumps(key))
+    strata = {"n0": "toxic", "n1": "toxic", "n2": "decoy", "n3": "decoy", "n4": "decoy"}
+    (tmp_path / "strata.json").write_text(json.dumps(strata | {"n5": "flagged"}))
+    (tmp_path / "pools.json").write_text(json.dumps({"toxic": 10, "decoy": 1000}))
+    judged = {f"at://{i}": ("neutral", "neutral") for i in range(6)}
+    judged["at://0"] = ("hostile", "abusive")
+    labels = dict.fromkeys(judged, "neutral")
+    lines = miss_estimate(tmp_path, judged, labels, unflagged=1010)
+    assert "toxic decoys: 2 judged of 10; both judges hostile 1" in lines[0]
+    assert "decoy decoys: 3 judged of 1000; both judges hostile 0" in lines[1]
+    assert lines[2].endswith("misses ~5 (95% CI 1-571)")
