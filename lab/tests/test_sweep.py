@@ -77,3 +77,7 @@ def test_fill_template_escapes_script_close():
         fill_template("no placeholder", "{}")
     noted = fill_template("<p>__CORPUS_NOTE__</p>__SWEEP_DATA__", "{}", note="A & <b>")
     assert noted.startswith("<p>A &amp; &lt;b&gt;</p>")
+    titled = fill_template("<h1>__PAGE_TITLE__</h1>__SWEEP_DATA__", "{}")
+    assert titled.startswith("<h1>Pile-on Sweeps</h1>")
+    titled = fill_template("<h1>__PAGE_TITLE__</h1>__SWEEP_DATA__", "{}", title="A<B")
+    assert titled.startswith("<h1>A&lt;B</h1>")

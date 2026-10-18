@@ -1,4 +1,4 @@
-<title>Pile-on Sweeps</title>
+<title>__PAGE_TITLE__</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: one reading column; a filter row scopes every chart below it; each section = question, chart, readout, table twin. */
@@ -101,7 +101,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
 <main class="page">
   <header>
-    <h1>Pile-on Sweeps</h1>
+    <h1>__PAGE_TITLE__</h1>
     <p class="lede">Each incident is a quote post or screenshot of someone's post (the amplifier's), plus everyone who replied to or quoted that post in the next 48 hours. Surges split by the tone of those arrivals into pile-ons (hostile), rallies (supportive), crossfires (both) and spotlights (neither). Pick one, and see which dimensions, each measured against the target's own normal, separate it from the rest.</p>
     <p class="corpus" id="corpus"></p>
   </header>
@@ -286,10 +286,10 @@ code { font-family: var(--mono); font-size: 0.92em; }
   const fmt = (dim, v) => {
     if (v == null || Number.isNaN(v)) return "—";
     switch (KIND[dim]) {
-      case "ratio": return (v >= 100 ? compact(v) : v >= 10 ? v.toFixed(0) : v.toFixed(1)) + "×";
+      case "ratio": return (v >= 100 ? compact(v) : v >= 10 ? v.toFixed(0) : v >= 0.1 || v === 0 ? v.toFixed(1) : String(Number(v.toPrecision(1)))) + "×";
       case "share": return pct(v);
       case "count": return compact(v);
-      case "log10": { const r = 10 ** v; return r >= 1 ? (r >= 100 ? compact(r) : r.toFixed(r >= 10 ? 0 : 1)) + "× bigger" : (1 / r).toFixed(1) + "× smaller"; }
+      case "log10": { const r = 10 ** v, s = r >= 1 ? r : 1 / r; return (s >= 100 ? compact(s) : s.toFixed(s >= 10 ? 0 : 1)) + (r >= 1 ? "× bigger" : "× smaller"); }
       case "bool": return v ? "yes" : "no";
       default: return String(v);
     }
@@ -565,7 +565,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
       text(svg, left - 6, ys(t) + 4, tickPct(t), { "text-anchor": "end" });
     }
     const best = bins.reduce((m, b) => (b.rate > m.rate ? b : m), bins[0]);
-    const every = band < 48 ? 2 : 1;
+    const labels = bins.map((b) => (band < 70 && KIND[dim] !== "bool" ? fmt(dim, b.lo) : binLabel(dim, b)));
+    const every = Math.max(1, Math.ceil((Math.max(...labels.map((s) => s.length)) * 6 + 8) / band));
     bins.forEach((b, i) => {
       const w = Math.min(24, band * 0.62);
       const x = left + i * band + (band - w) / 2;
@@ -573,10 +574,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
       const inDial = lower ? b.hi <= cur.cut : b.lo >= cur.cut;
       el("path", { d: barPath(x, ys(b.rate), w, h, "top"), fill: "var(--blue)", opacity: inDial ? 1 : 0.38, class: "bar" }, svg);
       if (b === best) text(svg, x + w / 2, ys(b.rate) - 6, pct(b.rate), { "text-anchor": "middle", fill: "var(--ink-2)" });
-      if (i % every === 0 || i === bins.length - 1) {
-        const lbl = text(svg, left + i * band + band / 2, height - bottom + 16, binLabel(dim, b), { "text-anchor": "middle", "font-size": 10.5 });
-        if (band < 70) lbl.textContent = KIND[dim] === "bool" ? binLabel(dim, b) : fmt(dim, b.lo);
-      }
+      if (i % every === 0) text(svg, left + i * band + band / 2, height - bottom + 16, labels[i], { "text-anchor": "middle", "font-size": 10.5 });
       const hit = el("rect", { x: left + i * band, y: top, width: band, height: height - top - bottom, fill: "transparent" }, svg);
       hoverable(hit, `${pct(b.rate)} ${outcomeName()}`, [`${SHORT[dim]}: ${binLabel(dim, b)}`, `${b.pos} of ${b.n} incidents`]);
     });

@@ -153,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         default="Incidents come from a private quote-post study database.",
         help="one or two sentences describing where the incidents come from",
     )
+    parser.add_argument("--title", default="Pile-on Sweeps")
     args = parser.parse_args(argv)
 
     rows = [json.loads(line) for line in args.features.read_text().splitlines()]
@@ -187,7 +188,9 @@ def main(argv: list[str] | None = None) -> int:
     args.out.write_text(data)
     print(f"wrote {args.out} ({args.out.stat().st_size / 1e3:.0f} kB)", file=sys.stderr)
     if args.template and args.page:
-        page = fill_template(args.template.read_text(), data, note=args.corpus_note)
+        page = fill_template(
+            args.template.read_text(), data, note=args.corpus_note, title=args.title
+        )
         args.page.parent.mkdir(parents=True, exist_ok=True)
         args.page.write_text(page)
         print(f"wrote {args.page}", file=sys.stderr)
@@ -196,18 +199,22 @@ def main(argv: list[str] | None = None) -> int:
 
 PLACEHOLDER = "__SWEEP_DATA__"
 NOTE_PLACEHOLDER = "__CORPUS_NOTE__"
+TITLE_PLACEHOLDER = "__PAGE_TITLE__"
 
 
-def fill_template(template: str, data: str, *, note: str = "") -> str:
-    """Embed JSON in the page's data script and the corpus note in its footer.
+def fill_template(
+    template: str, data: str, *, note: str = "", title: str = "Pile-on Sweeps"
+) -> str:
+    """Embed JSON in the page's data script, the corpus note and the title.
 
     `</` in the data is escaped so no value can close the script element; the
-    note is HTML-escaped.
+    note and title are HTML-escaped.
     """
     if template.count(PLACEHOLDER) != 1:
         msg = f"template must contain {PLACEHOLDER} exactly once"
         raise ValueError(msg)
     page = template.replace(PLACEHOLDER, data.replace("</", "<\\/"))
+    page = page.replace(TITLE_PLACEHOLDER, html.escape(title))
     return page.replace(NOTE_PLACEHOLDER, html.escape(note))
 
 

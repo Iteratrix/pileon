@@ -327,7 +327,8 @@ except for the Muse project); open a tunnel first:
    agents on `packet.jsonl` (outputs `opus.jsonl`, `fable.jsonl`, blind, same
    rules as the study calibration); `evalset run --dir ... --model M
    [--variant V]` for each candidate; `evalset score --dir ...` (dev split)
-   ranks them against judge consensus. Candidates must also not regress on
+   ranks them against judge consensus (judges on a blind copy outside the
+   repo, as in step 4). Candidates must also not regress on
    the human gold: `evalset run --dir ../data/lab/judges --model M` then
    `pileon_lab.judges score` on the study packet. Read `--split test` only
    for the final choice. Prompt variants live in `codebook.VARIANTS`;
@@ -346,9 +347,14 @@ except for the Muse project); open a tunnel first:
    packet --surges S --cache ... --labels ... [--sample-size N] --judged
    <judged packet dirs> --dir ../data/lab/confirm-<run>` writes every
    unjudged author-directed hostile call plus 120 random decoys (blind;
-   `strata.json` says which is which). Run the two judges on it with fresh
-   context (a general-purpose agent inheriting the session's Opus model, and
-   a Fable agent), never a fork: a fork knows the packet is enriched. Then
+   `strata.json` says which is which). Copy only `packet.jsonl` and
+   `codebook.md` to a fresh directory outside the repo (the scratchpad) and
+   run the two judges there with fresh context (a general-purpose agent
+   inheriting the session's Opus model, and a Fable agent), never a fork: a
+   fork knows the packet is enriched, and so does any agent that reads files
+   under the repo, because this CLAUDE.md then loads into its context
+   (happened 2026-10-17; the exposed runs are kept as `*@exposed.jsonl`).
+   Copy their outputs back as `opus.jsonl` and `fable.jsonl`. Then
    `confirm merge --labels ... --judged <every judged dir>` stores
    `<labeler>@confirmed` (each judged call takes the median of screen and
    judges) and prints the confirmation rate and the decoy miss estimate.
@@ -401,3 +407,28 @@ with the direction pass, 0.19 / 0.29 without; hostile recall 1.00, precision
 packet (one amplifier's targets, hostility mostly at them) hid this third-party
 failure, so the labeler choice for network labels has to be made on the
 network packet.
+
+Interim network sweep on confirmed labels (2026-10-17; 200 surges, 5,308
+replies; gemma4 screen, judges confirm, `pileon_lab.confirm`). Of gemma4's
+258 author-directed hostile calls, 70 survive (27%, 95% CI 22-33%; both
+judges on 47); the rest are mostly jokes, banter and puns it read as
+mockery. No random decoy is hostile by both judges (0 of 120), so misses
+look rare but the bound is loose (0-155 of 4,983). Confirmed author-directed
+hostility is 1.3% of replies. Judge exposure check: a clean rerun of each
+judge matched its run with this file in context at weighted kappa 0.91
+(Opus) and 0.87 (Fable); exposed runs called ~10% fewer replies hostile.
+Of 197 surges with 10+ labeled replies, 6 are pile-ons (3%), 146 rallies,
+45 spotlights, no crossfire (on unconfirmed labels: 18 pile-ons). With 6
+positives every AUC is wide, but the study's structural proxies point the
+same way: quoter/target followers 0.86 (bootstrap 95% 0.73-0.98), dunk vs
+post likes 0.84 (0.70-0.95), top reply vs post likes 0.82 (0.71-0.92),
+replies vs the target's previous high 0.78 (0.63-0.93); pile-on targets are
+smaller (target followers 0.21) and draw fewer likes per reply (0.27). On
+unconfirmed labels the same proxies score 0.51-0.72, so screen noise hides
+real signal and grading must use confirmed labels. In pile-ons, 49% of
+labeled replies from the quoter's audience are contempt at the target (0.8%
+in other surges). Nuke on the 5 pile-ons with a dunk (28 later harm
+replies): audience block stops 57% of harm and silences 9% of supporters,
+the gate 86% / 73%, strike 25% / 5%; far too few to generalize, Stage C
+decides. Next for the screen: decoys ranked by an off-the-shelf toxicity
+score as well as random ones, to tighten the miss bound.
