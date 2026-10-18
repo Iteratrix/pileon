@@ -35,7 +35,7 @@ from pileon_lab.agreement import cohens_kappa, weighted_kappa
 from pileon_lab.codebook import V2_LABELS, codebook_text
 from pileon_lab.evalset import HOSTILE, JUDGES, read_labels
 from pileon_lab.fetch import Cache, Fetcher
-from pileon_lab.label import LabelStore, choose
+from pileon_lab.label import LabelStore, Ollama, choose
 from pileon_lab.sources import post_thread, post_views
 from pileon_lab.surges import SurgeRecord, read_surges, sample
 from pileon_lab.sweep import surge_class
@@ -803,6 +803,108 @@ def _surge_table(
     return lines
 
 
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": list(VERDICTS)},
+        "severity": {"type": "integer", "minimum": 0, "maximum": 3},
+        "piled_on": {"type": "boolean"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+    "required": ["verdict", "severity", "piled_on", "confidence"],
+}
+POST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "label": {"type": "string", "enum": list(V2_LABELS)},
+        "aimed": {"type": "string", "enum": list(AIMS)},
+    },
+    "required": ["label", "aimed"],
+}
+
+
+def surge_text(entry: dict[str, Any]) -> str:
+    """One packet entry as plain text, for a local model."""
+    lines = []
+    for post in entry["target_posts"]:
+        lines += [
+            f"{parent['id']} by {parent['by']} (earlier): {parent['text']}"
+            for parent in post["parents"]
+        ]
+        lines.append(f"{post['id']} by TARGET: {post['text']}")
+    if entry["quote_post"]:
+        lines.append(f"Q by QUOTER (quote post): {entry['quote_post']['text']}")
+    for section, title in (
+        ("other_quotes", "Other quote posts of the TARGET"),
+        ("target_thread", "Replies under the TARGET's posts"),
+        ("quote_thread", "Replies under the QUOTER's post"),
+    ):
+        if entry[section]:
+            lines.append(f"\n{title}:")
+        for post in entry[section]:
+            to = f" (reply to {post['reply_to']})" if "reply_to" in post else ""
+            lines.append(f"{post['id']} by {post['by']}{to}: {post['text']}")
+    return "\n".join(lines)
+
+
+def run_model(outdir: Path, model: Ollama, out: Path) -> int:
+    """Verdicts for every surge, then in-context labels; resumes from `out`.
+
+    Every request for one surge starts with the same text (codebook, then the
+    surge), so the server can reuse its prompt cache across that surge's
+    posts.
+    """
+    entries = [
+        json.loads(line)
+        for chunk in sorted(outdir.glob("chunk-*.jsonl"))
+        for line in chunk.read_text().splitlines()
+        if line.strip()
+    ]
+    done = read_judgment(out) if out.exists() else Judgment({}, {})
+    asked = 0
+    with out.open("a") as sink:
+
+        def write(row: Row) -> None:
+            sink.write(json.dumps(row) + "\n")
+            sink.flush()
+
+        for entry in entries:
+            if entry["id"] in done.verdicts:
+                continue
+            context = f"{thread_codebook()}\n\nSURGE\n{surge_text(entry)}\n\n"
+            raw = model.ask(
+                context + "Give your verdict for this whole surge. Reply with ONLY "
+                'JSON: {"verdict": ..., "severity": 0-3, "piled_on": true|false, '
+                '"confidence": 0.0-1.0}',
+                schema=VERDICT_SCHEMA,
+            )
+            write({"surge": entry["id"], **_json_or_empty(raw)})
+            asked += 1
+        for entry in entries:
+            context = f"{thread_codebook()}\n\nSURGE\n{surge_text(entry)}\n\n"
+            for post in entry["label_these"]:
+                if (entry["id"], post) in done.posts:
+                    continue
+                raw = model.ask(
+                    context + f"Label post {post} in context. Reply with ONLY JSON: "
+                    '{"label": ..., "aimed": "target"|"quoter"|"other"|"none"}',
+                    schema=POST_SCHEMA,
+                )
+                write({"surge": entry["id"], "post": post, **_json_or_empty(raw)})
+                asked += 1
+                if asked % 50 == 0:
+                    print(f"[threads run] {asked}", file=sys.stderr, flush=True)
+    return asked
+
+
+def _json_or_empty(raw: str) -> Row:
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _rows(path: Path) -> dict[str, Row]:
     return {r["incident_id"]: r for r in map(json.loads, path.read_text().splitlines())}
 
@@ -897,9 +999,21 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--labels", type=Path, required=True)
     sc.add_argument("--labeler", default="gemma4:31b+contrast@confirmed")
     sc.add_argument("--isolated", type=Path, nargs="*", default=[])
+    rn = sub.add_parser("run", help="verdicts and in-context labels from a local model")
+    rn.add_argument("--dir", type=Path, required=True)
+    rn.add_argument("--ollama", default="http://localhost:11436")
+    rn.add_argument("--model", default="gemma4:31b")
+    rn.add_argument("--num-ctx", type=int, default=16384)
     args = parser.parse_args(argv)
     if args.command == "packet":
         packet(args)
+    elif args.command == "run":
+        model = Ollama(args.ollama, args.model, num_ctx=args.num_ctx)
+        try:
+            out = args.dir / f"{args.model.replace(':', '_')}.jsonl"
+            print(f"asked {run_model(args.dir, model, out)}", file=sys.stderr)
+        finally:
+            model.close()
     else:
         lines = score(args.dir, args.features, args.labels, args.labeler, args.isolated)
         print("\n".join(lines))

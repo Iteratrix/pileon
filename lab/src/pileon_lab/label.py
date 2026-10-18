@@ -62,11 +62,13 @@ class Ollama:
         *,
         timeout: float = 300.0,
         transport: httpx.BaseTransport | None = None,
+        num_ctx: int = 8192,
     ) -> None:
         self._http = httpx.Client(
             base_url=base_url, timeout=timeout, transport=transport
         )
         self.model = model
+        self.num_ctx = num_ctx
 
     def ask(self, prompt: str, *, schema: dict[str, Any] | None = None) -> str:
         """The reply to `prompt`; `schema` holds decoding to that JSON schema."""
@@ -75,7 +77,7 @@ class Ollama:
             "stream": False,
             "keep_alive": "60m",
             "think": False,
-            "options": {"temperature": 0, "num_ctx": 8192},
+            "options": {"temperature": 0, "num_ctx": self.num_ctx},
             "messages": [{"role": "user", "content": prompt}],
         }
         if schema is not None:
