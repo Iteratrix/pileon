@@ -10,6 +10,9 @@ from pileon_lab.detector import (
     grade,
     percentile,
     quantiles,
+    read_gold,
+    recall_budget,
+    weighted_auc,
 )
 
 
@@ -65,10 +68,21 @@ def test_freeze_cutoffs_hit_their_alert_rates_on_the_reference() -> None:
 def test_grade_reports_auc_and_alerts() -> None:
     rows = [_row(n, hot=n % 2 == 0) for n in range(1, 41)]
     reference = freeze(rows, "retro")
-    gold = {f"s{n}": n % 2 == 0 for n in range(1, 41)}
+    gold = {f"s{n}": (n % 2 == 0, 1.0) for n in range(1, 41)}
     lines = grade(reference, rows, gold)
-    assert lines[0] == "40 graded surges, 20 positive"
+    assert lines[0] == "40 graded surges (40 weighted), 20 positive; 0 unscored"
     assert lines[1].startswith("AUC 1.000")
-    band = bootstrap_auc([1.0, 2.0, 3.0, 4.0], [False, False, True, True], draws=200)
-    assert band is not None
-    assert band[1] == pytest.approx(1.0)
+    assert lines[-1] == "alert rate needed for 80% recall: 40%"
+    band = bootstrap_auc([(1.0, False, 1.0), (2.0, False, 1.0), (3.0, True, 1.0)])
+    assert band == (1.0, 1.0)
+
+
+def test_weights_count_each_pair_by_both_surges_weights() -> None:
+    graded = [(0.9, True, 1.0), (0.5, False, 1.0), (0.95, False, 4.0)]
+    assert weighted_auc(graded) == pytest.approx(1 / 5)
+    assert weighted_auc([(0.1, True, 1.0)]) is None
+    assert recall_budget([(0.9, True, 1.0), (0.5, False, 3.0)]) == pytest.approx(0.25)
+    assert read_gold('{"a": true, "b": {"positive": false, "weight": 4}}') == {
+        "a": (True, 1.0),
+        "b": (False, 4.0),
+    }

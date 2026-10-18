@@ -39,7 +39,7 @@ from pileon_lab.enrich import LIKER_PAGES, arrivals
 from pileon_lab.fetch import Cache, Fetcher
 from pileon_lab.sources import Likers, Relationship, likers, post_counts, relationships
 from pileon_lab.surges import SurgeRecord, read_surges, sample, to_incident
-from pileon_lab.sweep import auc, round_sig, surge_class
+from pileon_lab.sweep import round_sig, surge_class
 
 Families = dict[str, dict[str, int]]
 
@@ -164,60 +164,123 @@ def freeze(rows: list[Row], variant: str) -> Reference:
     return Reference(variant, unscored.signals, cutoffs)
 
 
+Graded = list[tuple[float, bool, float]]
+"""(score, positive, weight) per graded surge."""
+
+
+def weighted_auc(graded: Graded) -> float | None:
+    """P(a positive outscores a negative), pairs weighted, ties counting half."""
+    positives = [(s, w) for s, label, w in graded if label]
+    negatives = [(s, w) for s, label, w in graded if not label]
+    total = sum(w for _, w in positives) * sum(w for _, w in negatives)
+    if total == 0:
+        return None
+    wins = sum(
+        wp * wn * (1.0 if sp > sn else 0.5 if sp == sn else 0.0)
+        for sp, wp in positives
+        for sn, wn in negatives
+    )
+    return wins / total
+
+
 def bootstrap_auc(
-    scores: list[float], labels: list[bool], *, draws: int = 2000, seed: int = 7
+    graded: Graded, *, draws: int = 2000, seed: int = 7
 ) -> tuple[float, float] | None:
-    """95% percentile interval of the AUC, resampling surges."""
+    """95% interval of the AUC, resampling positives and negatives separately."""
     rng = random.Random(seed)  # noqa: S311 - reproducible resampling
-    pairs = list(zip(scores, labels, strict=True))
+    positives = [g for g in graded if g[1]]
+    negatives = [g for g in graded if not g[1]]
+    if not positives or not negatives:
+        return None
     values = []
     for _ in range(draws):
-        draw = [pairs[rng.randrange(len(pairs))] for _ in pairs]
-        value = auc([s for s, _ in draw], [lab for _, lab in draw])
+        draw = [rng.choice(positives) for _ in positives]
+        draw += [rng.choice(negatives) for _ in negatives]
+        value = weighted_auc(draw)
         if value is not None:
             values.append(value)
-    if not values:
-        return None
     values.sort()
     return values[int(0.025 * len(values))], values[int(0.975 * len(values)) - 1]
 
 
-def grade(reference: Reference, rows: list[Row], gold: dict[str, bool]) -> list[str]:
-    """AUC (with bootstrap range) and precision/recall at the frozen cutoffs."""
-    scored = []
+def recall_budget(graded: Graded, recall: float = 0.8) -> float | None:
+    """The smallest (weighted) alert rate that reaches `recall`."""
+    wanted = recall * sum(w for _, label, w in graded if label)
+    if wanted == 0:
+        return None
+    caught = alerted = 0.0
+    for _, label, weight in sorted(graded, key=lambda g: -g[0]):
+        alerted += weight
+        caught += weight if label else 0.0
+        if caught >= wanted:
+            return alerted / sum(w for _, _, w in graded)
+    return None
+
+
+Gold = dict[str, tuple[bool, float]]
+"""Incident id -> (positive, inverse-probability weight)."""
+
+
+def grade(reference: Reference, rows: list[Row], gold: Gold) -> list[str]:
+    """Weighted AUC with a stratified bootstrap range, and alerts at each cutoff."""
+    graded: Graded = []
     for row in rows:
-        label = gold.get(row["incident_id"])
+        entry = gold.get(row["incident_id"])
         score, _ = reference.score(row)
-        if label is not None and score is not None:
-            scored.append((score, label))
-    positives = sum(label for _, label in scored)
-    lines = [f"{len(scored)} graded surges, {positives} positive"]
-    value = auc([s for s, _ in scored], [lab for _, lab in scored])
+        if entry is not None and score is not None:
+            graded.append((score, entry[0], entry[1]))
+    positives = sum(label for _, label, _ in graded)
+    total = sum(w for _, _, w in graded)
+    unscored = sum(1 for r in rows if r["incident_id"] in gold) - len(graded)
+    lines = [
+        (
+            f"{len(graded)} graded surges ({total:.0f} weighted), "
+            f"{positives} positive; {unscored} unscored"
+        )
+    ]
+    value = weighted_auc(graded)
     if value is None:
         return [*lines, "AUC undefined (one class only)"]
-    band = bootstrap_auc([s for s, _ in scored], [lab for _, lab in scored])
+    band = bootstrap_auc(graded)
     lines.append(
         f"AUC {value:.3f}" + (f" (95% {band[0]:.2f}-{band[1]:.2f})" if band else "")
     )
+    wanted = sum(w for _, label, w in graded if label)
     for budget, cutoff in reference.cutoffs.items():
-        alerts = [(s, lab) for s, lab in scored if s >= cutoff]
-        hits = sum(lab for _, lab in alerts)
-        precision = hits / len(alerts) if alerts else 0.0
-        recall = hits / positives if positives else 0.0
+        alerts = [(label, w) for s, label, w in graded if s >= cutoff]
+        alerted = sum(w for _, w in alerts)
+        hits = sum(w for label, w in alerts if label)
         lines.append(
-            f"budget {budget}: {len(alerts)} alerts ({len(alerts) / len(scored):.0%}), "
-            f"precision {precision:.2f}, recall {recall:.2f} ({hits}/{positives})"
+            f"cutoff {budget} ({cutoff:.3f}): alerts {alerted / total:.0%} of surges, "
+            f"precision {hits / alerted if alerted else 0:.2f}, "
+            f"recall {hits / wanted:.2f}"
         )
+    needed = recall_budget(graded)
+    if needed is not None:
+        lines.append(f"alert rate needed for 80% recall: {needed:.0%}")
     return lines
+
+
+def read_gold(text: str) -> Gold:
+    """A gold file: {id: bool} or {id: {"positive": bool, "weight": float}}."""
+    out: Gold = {}
+    for key, value in json.loads(text).items():
+        if isinstance(value, dict):
+            out[key] = (bool(value["positive"]), float(value.get("weight", 1.0)))
+        else:
+            out[key] = (bool(value), 1.0)
+    return out
 
 
 def cascade_gold(
     rows: list[Row], *, min_labeled: int = 10, outcome: str = "pileon"
-) -> dict[str, bool]:
+) -> Gold:
     """Gold from reply labels: the surge class of each judged surge."""
     return {
-        row["incident_id"]: surge_class(row, hostile_at=0.10, support_at=0.25)
-        == outcome
+        row["incident_id"]: (
+            surge_class(row, hostile_at=0.10, support_at=0.25) == outcome,
+            1.0,
+        )
         for row in rows
         if (row.get("labeled") or 0) >= min_labeled
     }
@@ -333,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     reference = Reference.from_json(args.reference.read_text())
     if args.gold:
-        gold = {k: bool(v) for k, v in json.loads(args.gold.read_text()).items()}
+        gold = read_gold(args.gold.read_text())
     else:
         gold = cascade_gold(rows, min_labeled=args.min_labeled)
     print("\n".join(grade(reference, rows, gold)))

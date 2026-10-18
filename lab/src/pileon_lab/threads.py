@@ -41,7 +41,7 @@ from pileon_lab.surges import SurgeRecord, read_surges, sample
 from pileon_lab.sweep import surge_class
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Sequence
 
 WINDOW = timedelta(hours=48)
 VERDICTS = ("pileon", "crossfire", "rally", "spotlight", "unclear")
@@ -648,13 +648,27 @@ def isolated_labels(dirs: Iterable[Path]) -> dict[str, dict[str, str]]:
 
 
 def _kappa(
-    pairs: list[tuple[str, str]], *, order: tuple[str, ...] | None = None
+    pairs: list[tuple[str, str]],
+    *,
+    order: tuple[str, ...] | None = None,
+    draws: int = 1000,
 ) -> str:
+    """Agreement, kappa and its 95% bootstrap range over the pairs."""
     if not pairs:
         return "n=0"
+
+    def value(sample: list[tuple[str, str]]) -> float:
+        return weighted_kappa(sample, order=order) if order else cohens_kappa(sample)
+
+    rng = random.Random(11)  # noqa: S311 - reproducible resampling
+    band = sorted(
+        value([pairs[rng.randrange(len(pairs))] for _ in pairs]) for _ in range(draws)
+    )
     agree = sum(a == b for a, b in pairs) / len(pairs)
-    value = weighted_kappa(pairs, order=order) if order else cohens_kappa(pairs)
-    return f"n={len(pairs)} agree {agree:.0%} kappa {value:.2f}"
+    return (
+        f"n={len(pairs)} agree {agree:.0%} kappa {value(pairs):.2f} "
+        f"(95% {band[int(0.025 * draws)]:.2f} to {band[int(0.975 * draws) - 1]:.2f})"
+    )
 
 
 def _both(values: list[str | None], wanted: str) -> str:
@@ -664,8 +678,14 @@ def _both(values: list[str | None], wanted: str) -> str:
     return "both" if all(hits) else ("one" if any(hits) else "none")
 
 
-def score(
-    outdir: Path, features: Path, labels_db: Path, labeler: str, isolated: list[Path]
+def score(  # noqa: PLR0913 - one report, one argument per input
+    outdir: Path,
+    features: Path,
+    labels_db: Path,
+    labeler: str,
+    *,
+    isolated: list[Path],
+    models: Sequence[str] = (),
 ) -> list[str]:
     """Compare holistic, in-context and reply-by-reply measures of each surge."""
     key: dict[str, Any] = json.loads((outdir / "key.json").read_text())
@@ -687,10 +707,41 @@ def score(
     }
     return [
         *_agreement(*(judged[j] for j in JUDGES)),
+        *_class_agreement(key, judged, cascade),
         *_context_effect(judged, uris, isolated_labels(isolated), cascade),
+        *(
+            line
+            for name in models
+            for line in _model_lines(
+                name, read_judgment(outdir / f"{name}.jsonl"), judged
+            )
+        ),
         "",
         *_surge_table(key, strata, judged, _rows(features), cascade),
     ]
+
+
+def _model_lines(name: str, model: Judgment, judged: dict[str, Judgment]) -> list[str]:
+    """A local model's verdicts and in-context labels against each judge."""
+    lines = []
+    for judge in JUDGES:
+        other = judged[judge]
+        surges = sorted(set(model.verdicts) & set(other.verdicts))
+        posts = sorted(set(model.posts) & set(other.posts))
+
+        def pileon(j: Judgment, s: str) -> str:
+            return str(j.verdicts[s]["verdict"] == "pileon")
+
+        lines += [
+            f"{name} vs {judge} pile-on vs not:  "
+            + _kappa([(pileon(model, s), pileon(other, s)) for s in surges]),
+            f"{name} vs {judge} labels (weighted): "
+            + _kappa(
+                [(model.posts[p]["label"], other.posts[p]["label"]) for p in posts],
+                order=V2_LABELS,
+            ),
+        ]
+    return lines
 
 
 def _agreement(a: Judgment, b: Judgment) -> list[str]:
@@ -713,6 +764,43 @@ def _agreement(a: Judgment, b: Judgment) -> list[str]:
         + _kappa(pair("piled_on", lambda v: str(bool(v)))),
         "in-context labels (weighted): " + _kappa(labels, order=V2_LABELS),
         "in-context contempt:          " + _kappa(hostile),
+    ]
+
+
+def pileon_kappa(pairs: list[tuple[bool, bool]]) -> str:
+    """Pile-on vs not kappa; undefined when a rater makes under two calls."""
+    calls = [sum(a for a, _ in pairs), sum(b for _, b in pairs)]
+    if min(calls) < 2:  # noqa: PLR2004 - the pre-registered floor
+        return f"n={len(pairs)} pile-on calls {calls[0]}/{calls[1]}: kappa undefined"
+    text = _kappa([(str(a), str(b)) for a, b in pairs])
+    return f"{text}; pile-on calls {calls[0]}/{calls[1]}"
+
+
+def _class_agreement(
+    key: dict[str, Any], judged: dict[str, Judgment], cascade: dict[str, str]
+) -> list[str]:
+    """Judge-vs-judge agreement on pile-on vs not, for H, C and A."""
+    a, b = (judged[j] for j in JUDGES)
+    holistic, sampled, every = [], [], []
+    for surge in sorted(set(a.verdicts) & set(b.verdicts)):
+        posts = key[surge]["posts"]
+        holistic.append(
+            (
+                a.verdicts[surge]["verdict"] == "pileon",
+                b.verdicts[surge]["verdict"] == "pileon",
+            )
+        )
+        mine = [[(p, r) for (s, p), r in j.posts.items() if s == surge] for j in (a, b)]
+        c = [label_class(r for p, r in m if posts.get(p) in cascade) for m in mine]
+        e = [label_class(r for _, r in m) for m in mine]
+        if None not in c:
+            sampled.append((c[0] == "pileon", c[1] == "pileon"))
+        if None not in e:
+            every.append((e[0] == "pileon", e[1] == "pileon"))
+    return [
+        "kappa(H) holistic:             " + pileon_kappa(holistic),
+        "kappa(C) in-context, sampled:  " + pileon_kappa(sampled),
+        "kappa(A) in-context, all:      " + pileon_kappa(every),
     ]
 
 
@@ -999,6 +1087,7 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--labels", type=Path, required=True)
     sc.add_argument("--labeler", default="gemma4:31b+contrast@confirmed")
     sc.add_argument("--isolated", type=Path, nargs="*", default=[])
+    sc.add_argument("--models", nargs="*", default=[], help="local model outputs")
     rn = sub.add_parser("run", help="verdicts and in-context labels from a local model")
     rn.add_argument("--dir", type=Path, required=True)
     rn.add_argument("--ollama", default="http://localhost:11436")
@@ -1015,7 +1104,14 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             model.close()
     else:
-        lines = score(args.dir, args.features, args.labels, args.labeler, args.isolated)
+        lines = score(
+            args.dir,
+            args.features,
+            args.labels,
+            args.labeler,
+            isolated=args.isolated,
+            models=args.models,
+        )
         print("\n".join(lines))
     return 0
 

@@ -278,6 +278,8 @@ minute), `systemctl --user status pileon-replay`, progress in each root's
   network (0.644 / 0.693) but 0.45 on human gold and ~44 h per Stage C;
   clef's P(hostile+) x P(aimed) ranks network hostility at AUC 0.954.
   Revisit both once a surge-level judge packet exists.
+- Surge gold comes from whole threads, not single replies (2026-10-17 thread
+  round): single replies miss screenshots, banter and who is aimed at.
 - gemma4 is a screen, not gold (2026-10-17). On the network packet its
   author-directed hostile calls are loose: 11 of 26 are consensus-hostile
   (16 of 36 counting either judge), recall 11 of 12, and its confidence is
@@ -361,6 +363,35 @@ except for the Muse project); open a tunnel first:
    Rebuild features (step 2) and rerun `nuke` with `--labeler
    gemma4:31b+contrast@confirmed`.
 
+   The packet's toxic stratum (`--toxic 80 --toxic-pool 400`, toxic-bert
+   insult, `uv sync --group baselines`) and `pools.json` give a stratified
+   miss estimate. Tell judges to keep helper scripts inside their own
+   directory: shared scratchpad scripts collided on 2026-10-17.
+5. Thread round, the primary gold (`lab/PREREGISTRATION.md`): `uv run
+   python -m pileon_lab.threads packet --surges S --cache ... --features
+   <confirmed features> --screen-features <screen-only features>
+   --sample-size N --dir ../data/lab/threads-<run>`. It writes chunked
+   packets, each surge one conversation:
+   - the target's posts with their parents;
+   - the quoter's post and the other quote posts;
+   - the replies under both.
+
+   Packets carry no counts, handles, links or timestamps. `key.json` and
+   `strata.json` stay out of the blind copies. Copy each chunk with
+   `codebook.md` into its own blind directory outside the repo and run one
+   judge per directory, under step 4's rules. Concatenate the outputs into
+   `opus.jsonl` and `fable.jsonl`, then validate their coverage. `threads
+   score --dir ... --features ... --labels ... --isolated <item packet
+   dirs> [--models gemma4_31b]` compares the holistic, in-context and cascade
+   measures. `threads run` adds a local model's verdicts and labels
+   (`--num-ctx 16384`); never run it while Stage C labels on the same host.
+6. Grade the frozen detectors exactly as `lab/PREREGISTRATION.md` says:
+   `pileon_lab.detector early` adds the 15-minute signals to feature rows,
+   then run `detector grade --reference lab/detector/{retro,early}-reference.json
+   --features ... --gold <gold.json>`. The gold maps each id to `{"positive",
+   "weight"}`, the inverse-probability weight. Never refreeze the references
+   on held-out data.
+
 Hydrated post text sits only in the response cache (`data/lab/cache.db`);
 purge it after labeling runs if retention matters.
 
@@ -430,5 +461,23 @@ labeled replies from the quoter's audience are contempt at the target (0.8%
 in other surges). Nuke on the 5 pile-ons with a dunk (28 later harm
 replies): audience block stops 57% of harm and silences 9% of supporters,
 the gate 86% / 73%, strike 25% / 5%; far too few to generalize, Stage C
-decides. Next for the screen: decoys ranked by an off-the-shelf toxicity
-score as well as random ones, to tighten the miss bound.
+decides.
+
+Thread round on interim (2026-10-17 night; `pileon_lab.threads`, 28
+enriched surges, 1,352 posts per judge, details in `private/NOTES.md`). With
+the whole conversation visible, neither judge calls any surge a pile-on, the
+5 cascade pile-ons included; both call the same one surge a crossfire. In
+context the judges agree closely (weighted kappa 0.71, contempt kappa 0.96).
+Context removes contempt: of replies a judge had called contempt when shown
+alone, Opus withdrew 9 of 22 and Fable 19 of 31. Four of the 5 cascade
+pile-ons carry little or no contempt toward the target in context. In two of
+them the target's post was a screenshot mocking someone else, which item
+packets never show (they carry the target post's text only). So
+reply-by-reply labels are not valid surge gold. The pre-registration's
+primary gold is the pooled in-context class, and the cascade is now only the
+screen. gemma4 as a holistic judge repeats the screenshot error (kappa 0
+against the judges). True pile-ons look rare network-wide: 0 or 1 of 28
+surges enriched for them. The detector prototype (`pileon_lab.detector`,
+four families of structural signals, frozen references in `lab/detector/`)
+scores AUC 0.93 against interim cascade labels, but that gold is now
+suspect; the held-out grade decides.
