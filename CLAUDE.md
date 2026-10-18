@@ -114,7 +114,10 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   (network surges: sample, label, features, judge packets), `baselines.py`
   (off-the-shelf toxicity models), `decision.py` (decision models through
   Ollama's `/v1/systemone`), `early.py` (early warning), `nuke.py`
-  (blocklists and gates scored by counterfactual replay). Cache and outputs
+  (blocklists and gates scored by counterfactual replay), `threads.py`
+  (whole-thread judge packets, in-context gold), `detector.py` (the frozen
+  structural detector), `heldout.py` (Stage C held-out grading), `trawl.py`
+  (the pile-on-rich frame). Cache and outputs
   in `data/lab/`. Pipeline: `enrich` (warm the cache from a study database)
   -> `features` -> `sweep` (with `--template`
   and `--page` to build the page, `--corpus-note` to describe the data).
@@ -409,6 +412,25 @@ except for the Muse project); open a tunnel first:
       true and false alerts.
 
    Never refreeze the references on held-out data.
+7. The trawl, a pile-on-rich frame (`lab/PREREGISTRATION.md`, amendment 1;
+   `pileon_lab.trawl`):
+   1. `trawl score --surges <full run> --interim-surges ... --study-db ...
+      --cache ../data/lab/cache-trawl.db --out trawl/phase1.jsonl` scores
+      every eligible held-out surge on the frozen retro detector's cheap
+      families, from batched counts (about 30 minutes).
+   2. Commit and push any change to the design first. Then `trawl plan
+      --phase1 ... --reference detector/retro-reference.json --surges <full
+      run> --dir trawl` writes tiers, the seeded draw, and the drawn surges'
+      lines.
+   3. `network --surges trawl/surges.jsonl --sample-size 100000 --enrich`
+      and `detector early` on the same file give full features.
+   4. `trawl union --plan heldout/plan.json trawl/plan.json --surges <full
+      run> --dir threads-src` merges both plans. Build one thread packet from
+      it (`threads packet --plan threads-src/plan.json --surges
+      threads-src/surges.jsonl --sample-size 100000`) and judge it once.
+   5. `trawl report --dir trawl --threads <judged dir>` prints the tiers and
+      tests and writes `gold-primary.json` and `gold-hostile.json` for
+      `detector grade`.
 
 Hydrated post text sits only in the response cache (`data/lab/cache.db`);
 purge it after labeling runs if retention matters.

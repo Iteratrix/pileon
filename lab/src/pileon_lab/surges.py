@@ -126,6 +126,20 @@ def read_surges(path: Path) -> Iterator[SurgeRecord]:
                 yield parse_surge(json.loads(line))
 
 
+def copy_surges(source: Path, wanted: set[str], out: Path) -> int:
+    """Copy the detector lines of the `wanted` surge ids to `out`, verbatim."""
+    written = 0
+    with _open_text(source) as lines, out.open("w") as sink:
+        for line in lines:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if f"{row['target']}:{row['onset_us']}" in wanted:
+                sink.write(line if line.endswith("\n") else line + "\n")
+                written += 1
+    return written
+
+
 def size_bucket(strangers: int) -> int:
     """Power-of-two bucket: 8-15 -> 3, 16-31 -> 4, ... (capped at 9 = 512+)."""
     return min(9, max(3, math.floor(math.log2(max(strangers, 1)))))
