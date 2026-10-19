@@ -378,7 +378,10 @@ input is what was visible then:
   counted. Cutoffs are the 95th, 90th and 80th percentile scores as before.
   The freeze runs after this amendment is committed and pushed. Its sha256
   is added here in a separate commit, before any live row on a graded surge
-  is scored.
+  is scored. Frozen 2026-10-18: sha256
+  `ff8fd665a91b872c23c7588cc61c99e9dfc33ef25ea22d25fa637effcec44c3d`,
+  cutoffs 0.768 / 0.721 / 0.675 (5% / 10% / 20%), all 200 interim surges
+  found in the run.
 
 **Grading.** The same gold files as before, unchanged:
 - primary: weighted AUC with the stratified bootstrap on the Stage C primary
@@ -403,3 +406,10 @@ precision. Notifying anyone is the owner's decision and is not made here.
 1. The primary gold is the pooled in-context class, not the cascade class the
    reliability rule picked (see "Result on interim"). Decided 2026-10-17,
    after the interim thread round and before any held-out label.
+2. Found 2026-10-18 when rerunning detection for amendment 2: the detector
+   ordered quotes with equal engagement and posting time by hash-map order,
+   which varies between runs. Against a rerun, 694 of 120,028 surges
+   (outside the last 6 h of the run) differ in which quotes tie into the
+   top 50 or come first; for 127 the first quote, and so the retro
+   amplifier, differs. The retro and early grades used the 2026-10-17 run as
+   recorded and are not recomputed. Ties now break by URI.

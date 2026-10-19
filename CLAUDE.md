@@ -451,6 +451,21 @@ except for the Muse project); open a tunnel first:
       tests and writes `gold-primary.json` and `gold-hostile.json` for
       `detector grade`.
 
+8. The live variant (`lab/PREREGISTRATION.md`, amendment 2):
+   1. Rerun `pileon-detect` (trigger snapshots need a current build) with
+      `--until <yesterday>` so no open partition is read.
+   2. `detector live --surges <run> --features <rows> --cache
+      ../data/lab/cache.db --fetch --out <live rows>` on the 200 interim
+      rows, then `detector freeze --variant live` on them gives
+      `detector/live-reference.json`. Commit its sha256 into the amendment
+      before scoring anything graded.
+   3. The same `detector live` on the graded surges' early rows, then
+      `detector grade --reference detector/live-reference.json` against
+      each gold file and `heldout alerts --at trigger` for the lead time.
+   4. Parity: `pileon-alert score --surges <run> --cache ... --ids-from
+      <live rows> --reference ... --out <rust rows>`, then
+      `lab/scripts/parity.py <live rows> <rust rows> <reference>`.
+
 Hydrated post text sits only in the response cache (`data/lab/cache.db`);
 purge it after labeling runs if retention matters.
 

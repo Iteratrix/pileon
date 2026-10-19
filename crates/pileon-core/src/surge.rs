@@ -459,6 +459,7 @@ impl OpenSurge {
                 .total()
                 .cmp(&a.engagement.total())
                 .then_with(|| a.at_us.cmp(&b.at_us))
+                .then_with(|| a.uri.cmp(&b.uri))
         });
         quotes.truncate(TOP_QUOTE_POSTS);
         surge.quote_posts = quotes;
