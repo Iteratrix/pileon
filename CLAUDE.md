@@ -68,6 +68,16 @@ nothing that names the study's amplifier or targets belongs in tracked files.
      amplifying quote comes later, and a "more sensitive" option. The cutoff
      was read off graded data, so shadow-mode judging must confirm it.
 
+   Owner's product range (2026-10-18), each rung including the ones above
+   it, all tunable in an advanced settings menu: (1) notify, (2) detach the
+   quote, (3) block the quoter, (4) lock the post down for a while (no
+   replies or quotes), (5) mute the quoter's whole audience, (6) block it,
+   (7) nuclear block: a one-shot, preemptive block of everyone who approved
+   of the instigator or post, nearly a separate feature, validated by
+   whether it would have knocked out the instigator's coterie in their
+   later pile-ons. Independently: a labeler of common pile-on initiators,
+   so a user can block the list prophylactically (1b).
+
    Owner's direction (2026-10-17): the production system relies entirely on
    non-sentiment proxies (structure, approval, graph, timing). Text labels
    (local labelers, judges) exist only to validate those signals across
