@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import pytest
 
 from pileon_lab.detector import (
@@ -14,6 +16,9 @@ from pileon_lab.detector import (
     recall_budget,
     weighted_auc,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_percentile_is_the_mid_rank_in_the_reference() -> None:
@@ -86,3 +91,150 @@ def test_weights_count_each_pair_by_both_surges_weights() -> None:
         "a": (True, 1.0),
         "b": (False, 4.0),
     }
+
+
+ONSET_US = 1_786_000_000_000_000
+MINUTE_US = 60_000_000
+TARGET = "did:plc:target"
+QUOTER = "did:plc:quoter"
+
+
+def _follow(minutes: int) -> str:
+    from pileon_lab.tid import encode_us  # noqa: PLC0415
+
+    tid = encode_us(ONSET_US + minutes * MINUTE_US)
+    return f"at://did:plc:x/app.bsky.graph.follow/{tid}"
+
+
+def _iso(minutes: int) -> str:
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    at = datetime.fromtimestamp((ONSET_US + minutes * MINUTE_US) / 1e6, tz=UTC)
+    return at.isoformat().replace("+00:00", "Z")
+
+
+def _fake_network() -> Any:
+    import httpx  # noqa: PLC0415
+
+    def post(rkey: str, replies: int, *, likes: int = 0) -> dict[str, Any]:
+        return {
+            "uri": f"at://{TARGET}/app.bsky.feed.post/{rkey}",
+            "author": {"did": TARGET},
+            "record": {"text": ""},
+            "replyCount": replies,
+            "likeCount": likes,
+        }
+
+    posts = {
+        p["uri"]: p
+        for p in [post("p", 9, likes=2), *(post(f"h{n}", n) for n in (1, 3, 5))]
+    }
+    relationships = {
+        TARGET: {"did:plc:a": _follow(-60), "did:plc:b": None},
+        QUOTER: {"did:plc:a": None, "did:plc:b": _follow(-1)},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911 - per endpoint
+        params = request.url.params
+        path = request.url.path
+        if request.url.host == "plc.directory":
+            service = {"id": "#atproto_pds", "serviceEndpoint": "https://pds.example/"}
+            return httpx.Response(200, json={"service": [service]})
+        if path.endswith("listRecords"):
+            records = [
+                {"uri": f"at://{TARGET}/app.bsky.feed.post/h{n}"} for n in (1, 3, 5)
+            ]
+            return httpx.Response(200, json={"records": records})
+        if path.endswith("getPosts"):
+            found = [posts[u] for u in params.get_list("uris") if u in posts]
+            return httpx.Response(200, json={"posts": found})
+        if path.endswith("getLikes"):
+            likes = [
+                {"actor": {"did": "did:plc:a"}, "createdAt": _iso(1)},
+                {"actor": {"did": "did:plc:z"}, "createdAt": _iso(60 * 24)},
+            ]
+            return httpx.Response(200, json={"likes": likes})
+        if path.endswith("getRelationships"):
+            mine = relationships[params["actor"]]
+            rels = [
+                {
+                    "$type": "app.bsky.graph.defs#relationship",
+                    "did": d,
+                    "followedBy": mine[d],
+                }
+                for d in params.get_list("others")
+            ]
+            return httpx.Response(200, json={"relationships": rels})
+        if path.endswith("getProfiles"):
+            counts = {TARGET: 99, QUOTER: 9_999}
+            profiles = [
+                {"did": d, "followersCount": counts[d]}
+                for d in params.get_list("actors")
+            ]
+            return httpx.Response(200, json={"profiles": profiles})
+        return httpx.Response(404, json={})
+
+    return httpx.MockTransport(handler)
+
+
+def test_live_row_cuts_everything_at_the_trigger(tmp_path: Path) -> None:
+    import asyncio  # noqa: PLC0415
+
+    import httpx  # noqa: PLC0415
+
+    from pileon_lab.detector import live_row  # noqa: PLC0415
+    from pileon_lab.fetch import Cache, Fetcher  # noqa: PLC0415
+    from pileon_lab.surges import parse_surge  # noqa: PLC0415
+
+    quote = {
+        "uri": f"at://{QUOTER}/app.bsky.feed.post/q",
+        "author": QUOTER,
+        "at_us": ONSET_US,
+        "engagement": {"replies": 0, "quotes": 0, "reposts": 0, "likes": 3},
+    }
+    surge = parse_surge(
+        {
+            "target": TARGET,
+            "onset_us": ONSET_US,
+            "triggered_us": ONSET_US + 30 * MINUTE_US,
+            "trigger_target_post": f"at://{TARGET}/app.bsky.feed.post/p",
+            "trigger_quote": quote,
+            "warmup": False,
+            "baseline_per_hour": 0.1,
+            "strangers": 3,
+            "arrivals": 3,
+            "replies": 3,
+            "quotes": 1,
+            "mentions": 0,
+            "peak_surprise": 9.0,
+            "target_posts": [[f"at://{TARGET}/app.bsky.feed.post/p", 3]],
+            "quote_posts": [quote],
+            "recorded": [
+                [0, QUOTER, "q", "q", "p", True],
+                [60, "did:plc:a", "r", "a1", "p", True],
+                [120, "did:plc:a", "r", "a2", "p", True],
+                [180, "did:plc:b", "r", "b1", "p", True],
+                [31 * 60, "did:plc:c", "r", "c1", "p", True],
+            ],
+        }
+    )
+
+    async def run() -> dict[str, Any]:
+        client = httpx.AsyncClient(transport=_fake_network())
+        fetcher = Fetcher(Cache(tmp_path / "c.db"), client=client)
+        try:
+            return await live_row(surge, {"incident_id": surge.surge_id}, fetcher)
+        finally:
+            await fetcher.close()
+
+    row = asyncio.run(run())
+    assert row["live_cut_s"] == 1800.0
+    assert row["live_arrivals"] == 2.0
+    assert row["live_lift"] == pytest.approx(2 / 3)
+    assert row["live_likes_per_reply"] == pytest.approx(2 / 4)
+    assert row["live_liked_share"] == 0.5
+    assert row["live_follow_target"] == 0.5
+    assert row["live_follow_amplifier"] == 0.5
+    assert row["live_follower_ratio_log10"] == pytest.approx(2.0)
+    assert row["target_followers"] == 99
+    assert row["live_same_amplifier"] is True

@@ -10,12 +10,15 @@
 //! network-wide would make honoring deletions an ongoing obligation. Text for
 //! candidate threads is hydrated on demand from the public app view instead.
 
+pub mod alert;
+pub mod appview;
 pub mod bloom;
 pub mod event;
 pub mod poisson;
 pub mod records;
 pub mod rows;
 pub mod surge;
+pub mod tid;
 
 pub use event::{Collection, Event, EventKind, Operation, ParseError};
 pub use rows::{Row, Table, map_event};

@@ -326,7 +326,58 @@ struct OpenSurge {
     quote_posts: HashMap<String, QuotePost>,
 }
 
+/// The moment a surge opens: when, how strong, and the baseline then.
+#[derive(Clone, Copy)]
+struct Trigger {
+    onset_us: i64,
+    at_us: i64,
+    warmup: bool,
+    rate: f64,
+    strangers: u32,
+    score: f64,
+}
+
 impl OpenSurge {
+    fn new(target: &str, trigger: Trigger) -> Self {
+        let Trigger {
+            onset_us,
+            at_us,
+            warmup,
+            rate,
+            strangers,
+            score,
+        } = trigger;
+        Self {
+            surge: Surge {
+                target: target.to_owned(),
+                onset_us,
+                triggered_us: at_us,
+                trigger_target_post: None,
+                trigger_quote: None,
+                last_us: at_us,
+                warmup,
+                baseline_per_hour: rate,
+                trigger_strangers: strangers,
+                trigger_surprise: score,
+                peak_strangers: strangers,
+                peak_surprise: score,
+                arrivals: 0,
+                strangers: 0,
+                replies: 0,
+                quotes: 0,
+                mentions: 0,
+                target_posts: Vec::new(),
+                quote_posts: Vec::new(),
+                recorded: Vec::new(),
+                truncated: false,
+            },
+            last_stranger_us: at_us,
+            authors: HashMap::new(),
+            target_posts: HashMap::new(),
+            quote_posts: HashMap::new(),
+        }
+    }
+
     fn record(&mut self, arrival: &RecordedArrival, author: u64, max_recorded: usize) {
         if arrival.at_us >= self.surge.onset_us {
             let stranger = self.authors.entry(author).or_insert(false);
@@ -424,6 +475,7 @@ pub struct SurgeDetector {
     open: HashMap<u64, OpenSurge>,
     quote_owner: HashMap<String, u64>,
     recent_quotes: RecentQuotes,
+    opened: Option<Vec<Surge>>,
     now_us: i64,
     started_us: Option<i64>,
     last_sweep_us: i64,
@@ -441,11 +493,25 @@ impl SurgeDetector {
             open: HashMap::new(),
             quote_owner: HashMap::new(),
             recent_quotes: RecentQuotes::default(),
+            opened: None,
             now_us: i64::MIN,
             started_us: None,
             last_sweep_us: 0,
             last_evict_us: 0,
         }
+    }
+
+    /// Starts keeping a copy of each surge as it opens, for [`Self::take_opened`].
+    pub fn report_openings(&mut self) {
+        self.opened.get_or_insert_with(Vec::new);
+    }
+
+    /// Returns the surges opened since the last call, as they stood at
+    /// trigger: arrivals so far and the trigger snapshot (counts that are
+    /// only known at close are zero). Empty unless [`Self::report_openings`]
+    /// was called.
+    pub fn take_opened(&mut self) -> Vec<Surge> {
+        self.opened.as_mut().map(std::mem::take).unwrap_or_default()
     }
 
     /// Returns how many targets are tracked and how many surges are open.
@@ -549,6 +615,14 @@ impl SurgeDetector {
         });
     }
 
+    fn keep_opened(&mut self, open: &OpenSurge) {
+        if let Some(opened) = &mut self.opened {
+            let mut surge = open.surge.clone();
+            surge.recorded.sort_by_key(|a| a.at_us);
+            opened.push(surge);
+        }
+    }
+
     fn close(&mut self, key: u64) -> Option<Surge> {
         let open = self.open.remove(&key)?;
         for uri in open.quote_posts.keys() {
@@ -628,35 +702,17 @@ impl SurgeDetector {
         let warmup = self
             .started_us
             .is_some_and(|start| onset_us < start + config.warmup_days * US_PER_DAY);
-        let mut open = OpenSurge {
-            surge: Surge {
-                target: target.to_owned(),
+        let mut open = OpenSurge::new(
+            target,
+            Trigger {
                 onset_us,
-                triggered_us: post.at_us,
-                trigger_target_post: None,
-                trigger_quote: None,
-                last_us: post.at_us,
+                at_us: post.at_us,
                 warmup,
-                baseline_per_hour: rate,
-                trigger_strangers: strangers,
-                trigger_surprise: score,
-                peak_strangers: strangers,
-                peak_surprise: score,
-                arrivals: 0,
-                strangers: 0,
-                replies: 0,
-                quotes: 0,
-                mentions: 0,
-                target_posts: Vec::new(),
-                quote_posts: Vec::new(),
-                recorded: Vec::new(),
-                truncated: false,
+                rate,
+                strangers,
+                score,
             },
-            last_stranger_us: post.at_us,
-            authors: HashMap::new(),
-            target_posts: HashMap::new(),
-            quote_posts: HashMap::new(),
-        };
+        );
         for earlier in &state.recent {
             open.record(earlier, key_of(&earlier.author), config.max_recorded);
         }
@@ -664,6 +720,7 @@ impl SurgeDetector {
             self.quote_owner.insert(uri.clone(), target_key);
         }
         open.snapshot_trigger(&self.recent_quotes);
+        self.keep_opened(&open);
         self.open.insert(target_key, open);
     }
 }
@@ -976,6 +1033,27 @@ mod tests {
         assert_eq!(trigger_quote.engagement.likes, 1);
         assert_eq!(surge.quote_posts[0].uri, late);
         assert_eq!(surge.target_posts[0].0, later_post);
+    }
+
+    #[test]
+    fn openings_are_reported_with_the_trigger_snapshot() {
+        let mut detector = SurgeDetector::new(quick_config());
+        let target_post = post_uri(TARGET, 7);
+        for i in 0..7 {
+            reply(&mut detector, &format!("did:plc:s{i}"), i, &target_post);
+        }
+        assert_eq!(detector.take_opened(), Vec::<Surge>::new());
+        detector.report_openings();
+        reply(&mut detector, "did:plc:s7", 7, &target_post);
+        let opened = detector.take_opened();
+        assert_eq!(opened.len(), 1);
+        assert_eq!(opened[0].triggered_us, T0 + 7 * US_PER_MINUTE);
+        assert_eq!(opened[0].recorded.len(), 8);
+        assert_eq!(
+            opened[0].trigger_target_post.as_deref(),
+            Some(target_post.as_str())
+        );
+        assert_eq!(detector.take_opened(), Vec::<Surge>::new());
     }
 
     #[test]

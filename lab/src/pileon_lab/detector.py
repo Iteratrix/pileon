@@ -379,9 +379,11 @@ async def _median_replies(fetcher: Fetcher, incident: Incident) -> float | None:
     if not uris:
         return None
     counts = await post_counts(fetcher, uris)
-    target = (await post_counts(fetcher, [incident.target_post_uri])).get(
-        incident.target_post_uri
-    )
+    target = None
+    if incident.target_post_uri:
+        target = (await post_counts(fetcher, [incident.target_post_uri])).get(
+            incident.target_post_uri
+        )
     history = [
         p
         for p in counts.values()
@@ -395,7 +397,9 @@ async def live_row(surge: SurgeRecord, row: Row, fetcher: Fetcher) -> Row:
     """`row` with the `live_*` signals: everything cut at the surge's trigger.
 
     Only arrivals by the trigger are looked up, as a live alert would. Follows
-    count when dated before onset, likes when dated by the trigger.
+    count when dated before onset, likes when dated by the trigger. Follower
+    counts are fetched here, so `target_followers` is replaced too; nothing
+    else in `row` is read.
     """
     incident = live_incident(surge)
     trigger = surge.trigger
@@ -418,17 +422,18 @@ async def live_row(surge: SurgeRecord, row: Row, fetcher: Fetcher) -> Row:
         )
     to_target = await relationships(fetcher, incident.target_did, seen)
     to_amplifier: dict[str, Relationship] = {}
-    amplifier_followers = None
     if incident.amplifier_did:
         to_amplifier = await relationships(fetcher, incident.amplifier_did, seen)
-        amplifier_followers = (
-            await profile_counts(fetcher, [incident.amplifier_did])
-        ).get(incident.amplifier_did)
+    people = [incident.target_did] + (
+        [incident.amplifier_did] if incident.amplifier_did else []
+    )
+    followers = await profile_counts(fetcher, people)
+    target_followers = followers.get(incident.target_did)
+    amplifier_followers = followers.get(incident.amplifier_did)
     found = early_signals(incident, cut, liked, (to_target, to_amplifier))
-    median = await _median_replies(fetcher, incident) if target else None
-    target_followers = row.get("target_followers")
+    median = await _median_replies(fetcher, incident)
     ratio = None
-    if amplifier_followers is not None and isinstance(target_followers, int):
+    if amplifier_followers is not None and target_followers is not None:
         ratio = math.log10((amplifier_followers + 1) / (target_followers + 1))
     end = to_incident(surge)
     return row | {
@@ -438,6 +443,7 @@ async def live_row(surge: SurgeRecord, row: Row, fetcher: Fetcher) -> Row:
         "live_likes_per_reply": found.get("likes_per_reply"),
         "live_liked_share": found.get("liked_share"),
         "live_follower_ratio_log10": ratio,
+        "target_followers": target_followers,
         "live_follow_amplifier": found.get("follow_amplifier"),
         "live_follow_target": found.get("follow_target"),
         "live_same_target_post": incident.target_post_uri == end.target_post_uri,

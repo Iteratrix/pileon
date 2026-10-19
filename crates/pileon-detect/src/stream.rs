@@ -13,6 +13,8 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use pileon_core::Row as CoreRow;
+use pileon_core::rows::{Header, PostRow, SubjectRow};
 use serde::Deserialize;
 
 /// A row from one of the tables the detector reads.
@@ -27,7 +29,55 @@ pub enum Row {
 }
 
 impl Row {
-    fn seq(&self) -> u64 {
+    /// Returns the row the recorder would have written for a live event's
+    /// core row, for the tables the detector reads.
+    pub fn from_core(row: pileon_core::Row) -> Option<Self> {
+        let subject = |SubjectRow {
+                           header: Header { seq, ts, .. },
+                           created_at,
+                           subject,
+                           ..
+                       }: SubjectRow| SubjectLine {
+            seq,
+            ts,
+            created_at,
+            subject,
+        };
+        match row {
+            CoreRow::Post(PostRow {
+                header: Header { seq, ts, did },
+                rkey,
+                created_at,
+                parent,
+                quote,
+                mentions,
+                ..
+            }) => Some(Self::Post(PostLine {
+                seq,
+                ts,
+                did,
+                rkey,
+                created_at,
+                parent,
+                quote,
+                mentions,
+            })),
+            CoreRow::Like(like) => Some(Self::Like(subject(like))),
+            CoreRow::Repost(repost) => Some(Self::Repost(subject(repost))),
+            CoreRow::Block(_)
+            | CoreRow::Follow(_)
+            | CoreRow::Postgate(_)
+            | CoreRow::Threadgate(_)
+            | CoreRow::ListItem(_)
+            | CoreRow::ListBlock(_)
+            | CoreRow::Delete(_)
+            | CoreRow::Account(_)
+            | CoreRow::Reject(_) => None,
+        }
+    }
+
+    /// Returns the event's sequence number on its Jetstream host.
+    pub fn seq(&self) -> u64 {
         match self {
             Self::Post(PostLine { seq, .. })
             | Self::Like(SubjectLine { seq, .. })
@@ -191,8 +241,20 @@ impl TableStream {
     }
 }
 
+/// Opens a partition. An open partition the recorder sealed (compressed)
+/// since it was listed is read from its sealed file instead.
 fn open(path: &Path) -> io::Result<Box<dyn BufRead>> {
-    let file = File::open(path)?;
+    let sealed = path.with_extension("jsonl.zst");
+    let (file, path) = match File::open(path) {
+        Ok(file) => (file, path),
+        Err(err)
+            if err.kind() == io::ErrorKind::NotFound
+                && path.extension() == Some("jsonl".as_ref()) =>
+        {
+            (File::open(&sealed)?, sealed.as_path())
+        }
+        Err(err) => return Err(err),
+    };
     let compressed = path.extension().and_then(|e| e.to_str()) == Some("zst");
     if compressed {
         Ok(Box::new(BufReader::with_capacity(
@@ -333,6 +395,23 @@ mod tests {
         }
         assert_eq!(seqs, vec![1, 2, 4, 6, 7, 9, 11, 12]);
         assert_eq!(merged.duplicates, 1);
+    }
+
+    #[test]
+    fn a_partition_sealed_after_listing_is_read_sealed() {
+        let dir = tempfile::tempdir().unwrap();
+        let open = dir.path().join("posts/2026-08-05/17-1.jsonl");
+        fs::create_dir_all(open.parent().unwrap()).unwrap();
+        fs::write(&open, format!("{}\n", post(1))).unwrap();
+        let files = partitions(dir.path(), Table::Posts, None, None).unwrap();
+        fs::remove_file(&open).unwrap();
+        write_zst(&open.with_extension("jsonl.zst"), &[post(1), post(2)]);
+        let mut stream = TableStream::new(Table::Posts, files);
+        let mut seqs = Vec::new();
+        while let Some(row) = stream.next_row().unwrap() {
+            seqs.push(row.seq());
+        }
+        assert_eq!(seqs, vec![1, 2]);
     }
 
     #[test]

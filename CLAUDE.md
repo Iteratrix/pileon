@@ -92,7 +92,9 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   (amplifier candidates). At trigger it snapshots what a live alert can see:
   `trigger_target_post` and `trigger_quote` (engagement counted from posting,
   via a ledger of every quote within the lookback).
-- `crates/pileon-detect/` - `pileon-detect` binary: merges the recorded
+- `crates/pileon-detect/` - library (`stream` reads partitions back, `feed`
+  hands one row to the detector, `output` writes surge lines) and the
+  `pileon-detect` binary: merges the recorded
   `posts`/`likes`/`reposts` partitions from any roots in seq order (dropping
   overlap), runs the detector, writes one surge per JSON line (`.zst` output
   is compressed). Arrivals are compact rows `[seconds from onset, author,
@@ -100,6 +102,19 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   (`--min-strangers`, `--min-surprise`, `--window-minutes`, ...). Example:
   `target/release/pileon-detect --root data/jetstream/replay --root
   data/jetstream/live --out data/surges/all.jsonl.zst`. ~1M rows/s, ~1 GB RAM.
+- `crates/pileon-core/src/alert.rs`, `appview.rs`, `tid.rs` - the live
+  detector (amendment 2), ported step for step from the lab's `detector
+  live`: a `Snapshot` of a surge at trigger, `gather` (facts through the
+  `Fetch` trait; requests match `sources.py` URL for URL), `signals`, and
+  `Reference::score` (sums in the lab's order).
+- `crates/pileon-alert/` - `pileon-alert` binary. `live` warms the detector
+  on every recorded partition, then follows Jetstream from the last recorded
+  seq and scores each surge the moment it opens. Shadow mode: it appends to
+  `data/alerts/alerts.jsonl` (scores) and `surges.jsonl` (closed surges, for
+  judging later) and notifies nobody. `score` replays recorded surges
+  against the lab's cache (`CacheFetch` reads `responses` and `posts` by the
+  lab's keys); `lab/scripts/parity.py` compares its rows with `detector
+  live` rows. Unit: `deploy/pileon-alert.service`.
 - `crates/pileon-recorder/` - `pileon-recorder` binary: `live` (WebSocket
   tail) and `ingest` (SDK JSON lines on stdin), hourly zstd JSONL partitions,
   `state.json` cursor, disk floor (exit 75).

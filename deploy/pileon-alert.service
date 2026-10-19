@@ -1,0 +1,16 @@
+[Unit]
+Description=pileon-alert: live pile-on scoring in shadow mode (logs alerts, notifies nobody)
+Documentation=https://github.com/Iteratrix/pileon
+After=network-online.target pileon-recorder.service
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.cargo/bin/pileon-alert live --root %h/Projects/pileon/data/jetstream/replay --root %h/Projects/pileon/data/jetstream/live --host jetstream.us-west.bsky.network --reference %h/Projects/pileon/lab/detector/live-reference.json --dir %h/Projects/pileon/data/alerts
+Environment=RUST_LOG=info
+Restart=always
+RestartSec=60
+Nice=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
