@@ -82,7 +82,12 @@ nothing that names the study's amplifier or targets belongs in tracked files.
    block website (sign in as yourself, give the instigator's handle, the
    site blocks their approvers, then the credentials are cleared). The
    monitor-and-act rungs come later. Narrowed the same evening: the
-   labeler first, as the more straightforward of the two.
+   labeler first, as the more straightforward of the two. Owner's decision
+   (2026-10-18): labels are structural only (option A), no per-label judge
+   confirmation; intent and context are out of scope for subscribers. So a
+   label states the measured fact (this account's quotes drew N structural
+   pile-ons in a window), never intent, and its precision is measured once
+   on a judged sample (validation, as the 2026-10-17 direction allows).
 
    Owner's direction (2026-10-17): the production system relies entirely on
    non-sentiment proxies (structure, approval, graph, timing). Text labels
