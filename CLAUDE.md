@@ -60,7 +60,13 @@ nothing that names the study's amplifier or targets belongs in tracked files.
      targets' real detaches are the natural experiment. A reply filter by
      text label was proposed and parked. Owner's decision (2026-10-18): the
      response to an alert is a user setting, and the default is a
-     notification with a one-tap detach. Auto-detach is opt-in.
+     notification with a one-tap detach. Auto-detach is opt-in. Owner's
+     decision (2026-10-18): the default sensitivity is precision-first,
+     about the top 2% of surges by live score (on the trawl about 4 in 5
+     such alerts are pile-ons and a bit under half of pile-ons are caught),
+     with a second scoring while a surge is open to catch pile-ons whose
+     amplifying quote comes later, and a "more sensitive" option. The cutoff
+     was read off graded data, so shadow-mode judging must confirm it.
 
    Owner's direction (2026-10-17): the production system relies entirely on
    non-sentiment proxies (structure, approval, graph, timing). Text labels
