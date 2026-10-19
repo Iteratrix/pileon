@@ -81,7 +81,8 @@ nothing that names the study's amplifier or targets belongs in tracked files.
    Owner's decision (2026-10-18): start with the labeler and a nuclear
    block website (sign in as yourself, give the instigator's handle, the
    site blocks their approvers, then the credentials are cleared). The
-   monitor-and-act rungs come later.
+   monitor-and-act rungs come later. Narrowed the same evening: the
+   labeler first, as the more straightforward of the two.
 
    Owner's direction (2026-10-17): the production system relies entirely on
    non-sentiment proxies (structure, approval, graph, timing). Text labels
