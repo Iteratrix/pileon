@@ -12,7 +12,13 @@ from pileon_lab.codebook import (
 )
 from pileon_lab.evalset import hostile_scores, split_of
 from pileon_lab.label import choose
-from pileon_lab.surges import parse_surge, sample, size_bucket, to_incident
+from pileon_lab.surges import (
+    live_incident,
+    parse_surge,
+    sample,
+    size_bucket,
+    to_incident,
+)
 
 ONSET = 1_786_000_000_000_000
 TARGET = "did:plc:target"
@@ -87,6 +93,39 @@ def test_to_incident_keeps_arrivals_from_onset_and_drops_target_and_dunk():
     no_quote = to_incident(parse_surge(surge_line(quotes=False)))
     assert no_quote.amplifier_did == ""
     assert no_quote.dunk_uris == ()
+
+
+def test_live_incident_uses_the_trigger_snapshot():
+    line = surge_line()
+    line["recorded"].append([30, "did:plc:early2", "q", "q2", "p2", True])
+    line["trigger_target_post"] = f"at://{TARGET}/app.bsky.feed.post/p2"
+    line["trigger_quote"] = {
+        "uri": "at://did:plc:early2/app.bsky.feed.post/q2",
+        "author": "did:plc:early2",
+        "at_us": ONSET + 30_000_000,
+        "engagement": {"replies": 0, "quotes": 0, "reposts": 0, "likes": 2},
+    }
+    surge = parse_surge(line)
+    assert surge.trigger is not None
+    assert surge.trigger.at_us == ONSET + 60_000_000
+    live = live_incident(surge)
+    assert live.amplifier_did == "did:plc:early2"
+    assert live.target_post_uri == f"at://{TARGET}/app.bsky.feed.post/p2"
+    assert "did:plc:early2" not in [r.author for r in live.responses]
+    end = to_incident(surge)
+    assert end.amplifier_did == "did:plc:amp"
+    assert "did:plc:early2" in [r.author for r in end.responses]
+
+
+def test_live_incident_without_a_quote_or_snapshot():
+    line = surge_line()
+    line["trigger_target_post"] = None
+    line["trigger_quote"] = None
+    live = live_incident(parse_surge(line))
+    assert live.amplifier_did == ""
+    assert live.target_post_uri == ""
+    with pytest.raises(ValueError, match="no trigger snapshot"):
+        live_incident(parse_surge(surge_line()))
 
 
 def test_sample_balances_size_buckets_and_skips_warmup():

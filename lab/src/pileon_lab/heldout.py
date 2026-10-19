@@ -263,17 +263,27 @@ async def post_times(posts: dict[str, str], fetcher: Fetcher) -> dict[str, datet
 
 
 def lead_shares(
-    weights: dict[str, float], times: dict[str, datetime], onset: datetime
+    weights: dict[str, float], times: dict[str, datetime], alert_at: datetime
 ) -> tuple[float, float]:
-    """Pooled contempt after onset + 15 min, and all of it (both weighted)."""
+    """Pooled contempt after the alert, and all of it (both weighted)."""
     after = total = 0.0
     for uri, weight in weights.items():
         when = times.get(uri)
         if when is None:
             continue
         total += weight
-        after += weight if when > onset + LEAD else 0.0
+        after += weight if when > alert_at else 0.0
     return after, total
+
+
+def alert_moment(surge: SurgeRecord, at: str) -> datetime:
+    """When an alert on `surge` fires: onset + 15 min, or at the trigger."""
+    if at == "onset+15":
+        return surge.onset + LEAD
+    if surge.trigger is None:
+        msg = f"{surge.surge_id}: no trigger snapshot; rerun pileon-detect"
+        raise ValueError(msg)
+    return datetime.fromtimestamp(surge.trigger.at_us / 1e6, tz=UTC)
 
 
 def _rows(path: Path) -> dict[str, Row]:
@@ -315,6 +325,12 @@ def main(argv: list[str] | None = None) -> int:
     al.add_argument("--seed", type=int, default=20261017)
     al.add_argument("--cache", type=Path, required=True)
     al.add_argument("--groups-out", type=Path, required=True, help="for nuke --groups")
+    al.add_argument(
+        "--at",
+        choices=("onset+15", "trigger"),
+        default="onset+15",
+        help="when the alert fires; trigger needs surges with trigger data",
+    )
     args = parser.parse_args(argv)
     if args.command == "alerts":
         return alerts(args)
@@ -376,8 +392,13 @@ def alerts(args: argparse.Namespace) -> int:
             out = []
             for surge_id in true_alerts:
                 times = await post_times(shown.get(surge_id, {}), fetcher)
-                onset = surges[surge_id].onset
-                out.append(lead_shares(weights.get(surge_id, {}), times, onset))
+                out.append(
+                    lead_shares(
+                        weights.get(surge_id, {}),
+                        times,
+                        alert_moment(surges[surge_id], args.at),
+                    )
+                )
             return out
         finally:
             await fetcher.close()
@@ -387,7 +408,7 @@ def alerts(args: argparse.Namespace) -> int:
     total = sum(t for _, t in shares)
     print(
         f"early alerts: {len(groups)} ({len(true_alerts)} true); pooled contempt in "
-        f"true alerts {total:.1f}, after onset + 15 min {after:.1f}"
+        f"true alerts {total:.1f}, after the alert ({args.at}) {after:.1f}"
         + (f" ({after / total:.0%})" if total else "")
     )
     per = sorted(a / t for a, t in shares if t)

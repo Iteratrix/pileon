@@ -89,7 +89,9 @@ threshold) ships with its measured tradeoff curve, never a bare magic number.
   with Poisson surprise >= `min_surprise` (`poisson.rs`); closes after
   `quiet_hours` without strangers or `max_hours`. Records arrivals (including
   a lookback before onset) and engagement on quotes of the target's posts
-  (amplifier candidates).
+  (amplifier candidates). At trigger it snapshots what a live alert can see:
+  `trigger_target_post` and `trigger_quote` (engagement counted from posting,
+  via a ledger of every quote within the lookback).
 - `crates/pileon-detect/` - `pileon-detect` binary: merges the recorded
   `posts`/`likes`/`reposts` partitions from any roots in seq order (dropping
   overlap), runs the detector, writes one surge per JSON line (`.zst` output
@@ -532,10 +534,12 @@ threads (106 blind agents; holistic pile-on kappa 0.97, label weighted kappa
 0.93).
 - **Stage C sample** (159 judged surges with no dev overlap, 8 pile-ons in
   context): the frozen retro detector scores AUC 0.977 (95% 0.95-0.99) and
-  the early one 0.888 (0.78-0.97), so it replicates strongly and early holds.
-  With only 8 positives, both are provisional. At the frozen 10% cutoff,
-  precision is 0.16 and recall 1.00. 87% of the contempt in true early alerts
-  arrives after the alert.
+  the early one 0.888 (0.78-0.97). With only 8 positives, both are
+  provisional. At the frozen 10% cutoff, precision is 0.16 and recall 1.00.
+  The early grade is not a live estimate (amendment 2): a surge triggers a
+  median 39 min after its backdated onset, and the early quoter is the
+  whole-surge one, whose quote came after onset + 15 min in 5 of the 8
+  positives. The live variant (everything cut at the trigger) replaces it.
 - **The trawl** (all 62,792 eligible held-out surges, tiered by a cheap
   structural score of reach and approval alone): in-context pile-on share is
   85% (79 of 93) in the top 0.5%, 56% in the next 1.5%, 10% in the next 8%,
@@ -553,7 +557,8 @@ threads (106 blind agents; holistic pile-on kappa 0.97, label weighted kappa
   alone 0.995). So the frozen detector stays, and the cheap score serves as
   a pre-filter. (Exploratory comparison, not pre-registered.)
 - Defenses replayed on the judged held-out surges, with in-context labels and
-  armed 15 minutes after onset:
+  armed 15 minutes after onset (before most surges trigger; armed at +60 min
+  the audience block stops 53% and blocks 8% of supporters):
   - On 88 pile-ons, blocking the quoter's audience stops 58% of later harm
     and blocks 17% of supporters, but there are only 30 supporters to count.
   - In 146 rallies, the same block reaches only 5% of supporters.

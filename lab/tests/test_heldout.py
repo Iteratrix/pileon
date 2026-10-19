@@ -160,4 +160,5 @@ def test_early_alerts_and_lead_share_use_pooled_contempt(tmp_path: Path) -> None
     weights = contempt_weights(tmp_path)
     assert weights == {"hit": {"at://a": 1.0, "at://b": 0.5}}
     times = {"at://a": LATE + timedelta(minutes=5), "at://b": LATE + timedelta(hours=2)}
-    assert lead_shares(weights["hit"], times, LATE) == (0.5, 1.5)
+    alert_at = LATE + timedelta(minutes=15)
+    assert lead_shares(weights["hit"], times, alert_at) == (0.5, 1.5)

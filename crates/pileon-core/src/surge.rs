@@ -13,6 +13,11 @@
 //! amplifier candidates), until no stranger has arrived for `quiet_hours` or
 //! it reaches `max_hours`.
 //!
+//! When a surge opens it also keeps what could be seen at that moment: the
+//! target's post drawing the most arrivals so far and the most engaged quote
+//! of the target's posts so far, its engagement counted from when it was
+//! posted. A live alert can only act on these.
+//!
 //! The detector is pure and driven only by event times, so replaying history
 //! and following the live stream give identical results.
 
@@ -179,6 +184,11 @@ pub struct Surge {
     pub onset_us: i64,
     /// When the surge crossed both thresholds.
     pub triggered_us: i64,
+    /// The target's post drawing the most arrivals from onset to trigger.
+    pub trigger_target_post: Option<String>,
+    /// The most engaged quote of the target's posts at trigger, with its
+    /// engagement from posting to trigger.
+    pub trigger_quote: Option<QuotePost>,
     /// The last arrival recorded.
     pub last_us: i64,
     /// Whether it opened during warm-up, when baselines were still forming.
@@ -281,6 +291,33 @@ fn decay(elapsed_us: i64, config: &SurgeConfig) -> f64 {
     (-hours / config.baseline_half_life_hours).exp2()
 }
 
+/// Engagement on every quote of anyone's post within the lookback, so a
+/// surge that opens later knows what its quotes drew before it opened.
+#[derive(Default)]
+struct RecentQuotes {
+    engagement: HashMap<String, Engagement>,
+    order: VecDeque<(i64, String)>,
+}
+
+impl RecentQuotes {
+    fn add(&mut self, uri: &str, at_us: i64) {
+        if self.engagement.contains_key(uri) {
+            return;
+        }
+        self.engagement
+            .insert(uri.to_owned(), Engagement::default());
+        self.order.push_back((at_us, uri.to_owned()));
+    }
+
+    fn expire(&mut self, before_us: i64) {
+        while self.order.front().is_some_and(|(at, _)| *at < before_us) {
+            if let Some((_, uri)) = self.order.pop_front() {
+                self.engagement.remove(&uri);
+            }
+        }
+    }
+}
+
 struct OpenSurge {
     surge: Surge,
     last_stranger_us: i64,
@@ -324,6 +361,33 @@ impl OpenSurge {
         }
     }
 
+    /// Keeps the leading target post and quote as they stood at trigger.
+    fn snapshot_trigger(&mut self, quotes: &RecentQuotes) {
+        self.surge.trigger_target_post = self
+            .target_posts
+            .iter()
+            .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+            .map(|(uri, _)| uri.clone());
+        self.surge.trigger_quote = self
+            .quote_posts
+            .values()
+            .map(|quote| QuotePost {
+                engagement: quotes
+                    .engagement
+                    .get(&quote.uri)
+                    .cloned()
+                    .unwrap_or_default(),
+                ..quote.clone()
+            })
+            .max_by(|a, b| {
+                a.engagement
+                    .total()
+                    .cmp(&b.engagement.total())
+                    .then_with(|| b.at_us.cmp(&a.at_us))
+                    .then_with(|| b.uri.cmp(&a.uri))
+            });
+    }
+
     fn finish(self) -> Surge {
         let Self {
             mut surge,
@@ -359,6 +423,7 @@ pub struct SurgeDetector {
     targets: HashMap<u64, TargetState>,
     open: HashMap<u64, OpenSurge>,
     quote_owner: HashMap<String, u64>,
+    recent_quotes: RecentQuotes,
     now_us: i64,
     started_us: Option<i64>,
     last_sweep_us: i64,
@@ -375,6 +440,7 @@ impl SurgeDetector {
             targets: HashMap::new(),
             open: HashMap::new(),
             quote_owner: HashMap::new(),
+            recent_quotes: RecentQuotes::default(),
             now_us: i64::MIN,
             started_us: None,
             last_sweep_us: 0,
@@ -423,7 +489,10 @@ impl SurgeDetector {
         keys.into_iter().filter_map(|key| self.close(key)).collect()
     }
 
-    fn engage(&mut self, uri: &str, bump: impl FnOnce(&mut Engagement)) {
+    fn engage(&mut self, uri: &str, bump: impl Fn(&mut Engagement)) {
+        if let Some(engagement) = self.recent_quotes.engagement.get_mut(uri) {
+            bump(engagement);
+        }
         let Some(owner) = self.quote_owner.get(uri) else {
             return;
         };
@@ -444,6 +513,8 @@ impl SurgeDetector {
         let mut closed = Vec::new();
         if self.now_us - self.last_sweep_us >= SWEEP_EVERY_US {
             self.last_sweep_us = self.now_us;
+            self.recent_quotes
+                .expire(self.now_us - self.config.lookback_minutes * US_PER_MINUTE);
             let quiet = self.config.quiet_hours * US_PER_HOUR;
             let longest = self.config.max_hours * US_PER_HOUR;
             let done: Vec<u64> = self
@@ -517,6 +588,9 @@ impl SurgeDetector {
                 ..TargetState::default()
             });
         state.expire(self.now_us, config);
+        if kind == ArrivalKind::Quote {
+            self.recent_quotes.add(post.uri, post.at_us);
+        }
         state.recent.push_back(arrival.clone());
         if state.recent.len() > RECENT_CAP {
             state.recent.pop_front();
@@ -559,6 +633,8 @@ impl SurgeDetector {
                 target: target.to_owned(),
                 onset_us,
                 triggered_us: post.at_us,
+                trigger_target_post: None,
+                trigger_quote: None,
                 last_us: post.at_us,
                 warmup,
                 baseline_per_hour: rate,
@@ -587,6 +663,7 @@ impl SurgeDetector {
         for uri in open.quote_posts.keys() {
             self.quote_owner.insert(uri.clone(), target_key);
         }
+        open.snapshot_trigger(&self.recent_quotes);
         self.open.insert(target_key, open);
     }
 }
@@ -854,6 +931,71 @@ mod tests {
             }
         );
         assert_eq!(closed[0].quotes, 1);
+    }
+
+    fn quote(detector: &mut SurgeDetector, author: &str, minute: i64, quoted: &str) -> String {
+        let uri = post_uri(author, 1);
+        detector.observe_post(&PostEvent {
+            at_us: T0 + minute * US_PER_MINUTE,
+            author,
+            uri: &uri,
+            parent: None,
+            quote: Some(quoted),
+            mentions: &[],
+        });
+        uri
+    }
+
+    #[test]
+    fn trigger_keeps_what_was_visible_when_the_surge_opened() {
+        let mut detector = SurgeDetector::new(quick_config());
+        let first_post = post_uri(TARGET, 7);
+        let later_post = post_uri(TARGET, 8);
+        let early = quote(&mut detector, "did:plc:early", 0, &first_post);
+        detector.observe_engagement(&early, EngagementKind::Like, T0 + 30_000_000);
+        for i in 0..7 {
+            reply(&mut detector, &format!("did:plc:s{i}"), 1 + i, &first_post);
+        }
+        let late = quote(&mut detector, "did:plc:late", 10, &later_post);
+        for i in 0..5 {
+            detector.observe_engagement(&late, EngagementKind::Like, T0 + (11 + i) * US_PER_MINUTE);
+        }
+        for i in 0..20 {
+            reply(&mut detector, &format!("did:plc:r{i}"), 20 + i, &later_post);
+        }
+        let closed = detector.finish();
+        assert_eq!(closed.len(), 1);
+        let surge = &closed[0];
+        assert_eq!(surge.triggered_us, T0 + 7 * US_PER_MINUTE);
+        assert_eq!(
+            surge.trigger_target_post.as_deref(),
+            Some(first_post.as_str())
+        );
+        let trigger_quote = surge.trigger_quote.as_ref().expect("a quote was visible");
+        assert_eq!(trigger_quote.uri, early);
+        assert_eq!(trigger_quote.engagement.likes, 1);
+        assert_eq!(surge.quote_posts[0].uri, late);
+        assert_eq!(surge.target_posts[0].0, later_post);
+    }
+
+    #[test]
+    fn recent_quotes_forget_engagement_past_the_lookback() {
+        let mut quotes = RecentQuotes::default();
+        quotes.add("at://a/app.bsky.feed.post/1", T0);
+        quotes.add("at://b/app.bsky.feed.post/1", T0 + US_PER_HOUR);
+        quotes.add("at://a/app.bsky.feed.post/1", T0 + 2 * US_PER_HOUR);
+        quotes.expire(T0 + 1);
+        assert!(
+            !quotes
+                .engagement
+                .contains_key("at://a/app.bsky.feed.post/1")
+        );
+        assert!(
+            quotes
+                .engagement
+                .contains_key("at://b/app.bsky.feed.post/1")
+        );
+        assert_eq!(quotes.order.len(), 1);
     }
 
     #[test]

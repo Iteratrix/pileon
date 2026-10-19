@@ -330,6 +330,74 @@ of about 13-29%. The rally-share test has power about 0.73 at a 90% rally
 share against 70%. Tooling (`pileon_lab.trawl`) is pinned at the commit that
 adds this amendment.
 
+## Amendment 2: the live variant, what an alert can see
+
+Added on 2026-10-18, after the Stage C and trawl grades of the retro and
+early detectors were computed and read. Before porting the early detector to
+the live path, a check of what it uses found inputs a live system cannot have
+at onset + 15 min:
+- **Onset is backdated.** It is the first stranger arrival in the window that
+  opened the surge. The detector only knows of a surge when it triggers, a
+  median 39 min after onset on the 523 thread-round surges. 88% trigger later
+  than onset + 15 min.
+- **The target post and the quoter come from the whole surge.** The target
+  post is the one drawing the most arrivals over the surge (the one leading at
+  +15 min in 67% of surges), and the quoter is the author of the quote with
+  the most engagement while the surge was open. In 73% of the surges with a
+  quote, that quote was posted after onset + 15 min. In 5 of the 8 held-out
+  primary positives, it was posted after onset + 15 min.
+
+So the early grade does not estimate a live alert. It stays on record as
+computed. This amendment adds the variant that does.
+
+**The live variant.** The alert fires when the surge triggers, and every
+input is what was visible then:
+- **Snapshot.** `pileon-detect` records `trigger_target_post`, the target's
+  post drawing the most arrivals from onset to trigger (ties: the smaller
+  URI), and `trigger_quote`. That is the quote of the target's posts with the
+  most engagement at trigger. Engagement (replies, quotes, reposts, likes) is
+  counted from when the quote was posted, for quotes inside the lookback.
+  Ties go to the earlier quote, then the smaller URI. No quote at trigger
+  means no quoter.
+- **Signals.** The early signals and directions, cut at the trigger:
+  - volume: distinct arrivals from onset to trigger against the target's
+    median replies before onset (the baseline's kind matched to the trigger
+    target post);
+  - approval: likes per reply on the trigger target post and the share of
+    arrivals liking it, likes dated by the trigger;
+  - reach: trigger quoter/target followers, and target followers (low);
+  - audience: arrivals following the trigger quoter (high) and the target
+    (low), follows dated before onset.
+
+  Relationships are looked up only for arrivals by the trigger. Follower
+  counts are current, as for the other variants.
+- **Reference.** `lab/detector/live-reference.json`, frozen by `detector
+  freeze --variant live` from live rows on the same 200 unlabeled interim
+  surges as the early reference. Each surge is taken from the 2026-10-18
+  detection run by its id, and an id missing from that run is dropped and
+  counted. Cutoffs are the 95th, 90th and 80th percentile scores as before.
+  The freeze runs after this amendment is committed and pushed. Its sha256
+  is added here in a separate commit, before any live row on a graded surge
+  is scored.
+
+**Grading.** The same gold files as before, unchanged:
+- primary: weighted AUC with the stratified bootstrap on the Stage C primary
+  gold (`heldout/gold-primary.json`). Also precision, recall and the realized
+  alert rate at the live 10% cutoff;
+- secondary: the same on the Stage C hostile gold and on the trawl primary
+  gold (`trawl/gold-primary.json`);
+- lead time: the share of pooled contempt in true live alerts that arrives
+  after the trigger (`heldout alerts --at trigger`);
+- descriptive: how often the trigger target post and quoter differ from the
+  whole-surge ones, and the early and live scores side by side on the same
+  surges.
+
+**How to read it.** The live variant's numbers are the ones reported for a
+live alert. The early detector's numbers are not. No threshold here decides
+whether the live variant runs. It runs in shadow mode (alerts logged,
+nobody notified), and judging a sample of its alerts measures live
+precision. Notifying anyone is the owner's decision and is not made here.
+
 ## Deviations
 
 1. The primary gold is the pooled in-context class, not the cascade class the

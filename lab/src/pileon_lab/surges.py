@@ -8,7 +8,9 @@ enrichment and relative features used on the study apply unchanged.
 
 The amplifier of a surge is the author of the most-engaged quote of the
 target's post, when there is one; reply-driven surges without a quote have
-no amplifier (screenshots and off-platform links leave no trace).
+no amplifier (screenshots and off-platform links leave no trace). That choice
+uses the whole surge. [`live_incident`] instead uses what the detector could
+see when the surge triggered: the target post and the quote leading then.
 """
 
 from __future__ import annotations
@@ -40,6 +42,15 @@ class QuoteCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class Trigger:
+    """What was visible when the surge crossed the detector's thresholds."""
+
+    at_us: int
+    target_post: str | None
+    quote: QuoteCandidate | None
+
+
+@dataclass(frozen=True, slots=True)
 class Arrival:
     offset_s: int
     author: str
@@ -67,6 +78,8 @@ class SurgeRecord:
     target_posts: tuple[tuple[str, int], ...]
     quote_posts: tuple[QuoteCandidate, ...]
     recorded: tuple[Arrival, ...]
+    trigger: Trigger | None = None
+    """`None` for detector output written before trigger snapshots existed."""
 
     @property
     def surge_id(self) -> str:
@@ -86,17 +99,26 @@ def _open_text(path: Path) -> io.TextIOBase:
     return path.open()
 
 
+def _quote(q: dict[str, Any]) -> QuoteCandidate:
+    return QuoteCandidate(
+        uri=q["uri"],
+        author=q["author"],
+        at_us=q["at_us"],
+        engagement=sum(q["engagement"].values()),
+    )
+
+
 def parse_surge(line: dict[str, Any]) -> SurgeRecord:
     """Build a [`SurgeRecord`] from one decoded JSON line."""
-    quotes = tuple(
-        QuoteCandidate(
-            uri=q["uri"],
-            author=q["author"],
-            at_us=q["at_us"],
-            engagement=sum(q["engagement"].values()),
+    quotes = tuple(_quote(q) for q in line["quote_posts"])
+    trigger = None
+    if "trigger_quote" in line:
+        quote = line["trigger_quote"]
+        trigger = Trigger(
+            at_us=line["triggered_us"],
+            target_post=line["trigger_target_post"],
+            quote=_quote(quote) if quote else None,
         )
-        for q in line["quote_posts"]
-    )
     recorded = tuple(
         Arrival(offset, author, kind, rkey, target_rkey, bool(stranger))
         for offset, author, kind, rkey, target_rkey, stranger in line["recorded"]
@@ -115,6 +137,7 @@ def parse_surge(line: dict[str, Any]) -> SurgeRecord:
         target_posts=tuple((uri, n) for uri, n in line["target_posts"]),
         quote_posts=quotes,
         recorded=recorded,
+        trigger=trigger,
     )
 
 
@@ -175,13 +198,11 @@ def sample(
     return sorted(chosen, key=lambda s: s.onset_us)
 
 
-def to_incident(surge: SurgeRecord) -> Incident:
-    """Express a surge as an [`Incident`] anchored at its onset.
-
-    Responses are every recorded arrival from onset on, except the target's
-    own posts and the amplifier's quote; their valence starts unknown.
-    """
-    amplifier = max(surge.quote_posts, key=lambda q: q.engagement, default=None)
+def _incident(
+    surge: SurgeRecord, target_post: str, amplifier: QuoteCandidate | None
+) -> Incident:
+    """Responses are every recorded arrival from onset on, except the target's
+    own posts and the amplifier's quote; their valence starts unknown."""
     onset = surge.onset
     responses = [
         Response(
@@ -205,7 +226,30 @@ def to_incident(surge: SurgeRecord) -> Incident:
         target_followers=None,
         anchor=onset,
         amplifier_did=amplifier.author if amplifier else "",
-        target_post_uri=surge.target_posts[0][0],
+        target_post_uri=target_post,
         dunk_uris=(amplifier.uri,) if amplifier else (),
         responses=tuple(sorted(responses, key=lambda r: r.at)),
     )
+
+
+def to_incident(surge: SurgeRecord) -> Incident:
+    """Express a surge as an [`Incident`] anchored at its onset.
+
+    The target post and the amplifier are the ones leading over the whole
+    surge, which a live system cannot know yet.
+    """
+    amplifier = max(surge.quote_posts, key=lambda q: q.engagement, default=None)
+    return _incident(surge, surge.target_posts[0][0], amplifier)
+
+
+def live_incident(surge: SurgeRecord) -> Incident:
+    """Express a surge as an [`Incident`] with the trigger's target post and quote.
+
+    Still anchored at onset and still holding every arrival; signals cut at
+    the trigger see only what a live system had then. A surge whose arrivals
+    by the trigger were all mentions has no target post (`""`).
+    """
+    if surge.trigger is None:
+        msg = f"{surge.surge_id}: no trigger snapshot; rerun pileon-detect"
+        raise ValueError(msg)
+    return _incident(surge, surge.trigger.target_post or "", surge.trigger.quote)

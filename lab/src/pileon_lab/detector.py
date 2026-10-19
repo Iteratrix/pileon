@@ -16,8 +16,11 @@ equally, so four correlated volume signals count once. A threshold turns the
 score into an alert; `freeze` stores cutoffs for 5%, 10% and 20% alert rates
 on the reference surges.
 
-`early` uses only what is observable 15 minutes after the quote: follower
-counts, the first arrivals and their follows, and likes dated by then.
+`early` uses what is observable 15 minutes after the surge's onset, but
+picks the target post and the quoter from the whole surge, and the detector
+only knows of most surges later (it triggers a median 39 minutes after
+onset). `live` (amendment 2) uses the same signals cut at the trigger, with
+the target post and quoter the detector saw then: what a live alert has.
 """
 
 from __future__ import annotations
@@ -32,13 +35,31 @@ import sys
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pileon_lab.early import early_signals
-from pileon_lab.enrich import LIKER_PAGES, arrivals
+from pileon_lab.enrich import BASELINE_POSTS, LIKER_PAGES, arrivals
+from pileon_lab.features import baseline
 from pileon_lab.fetch import Cache, Fetcher
-from pileon_lab.sources import Likers, Relationship, likers, post_counts, relationships
-from pileon_lab.surges import SurgeRecord, read_surges, sample, to_incident
+from pileon_lab.sources import (
+    Likers,
+    Relationship,
+    likers,
+    post_counts,
+    post_uris_before,
+    profile_counts,
+    relationships,
+)
+from pileon_lab.surges import (
+    SurgeRecord,
+    live_incident,
+    read_surges,
+    sample,
+    to_incident,
+)
+
+if TYPE_CHECKING:
+    from pileon_lab.study import Incident
 from pileon_lab.sweep import round_sig, surge_class
 
 Families = dict[str, dict[str, int]]
@@ -68,7 +89,14 @@ EARLY_FAMILIES: Families = {
     "audience": {"early_follow_amplifier": 1, "early_follow_target": -1},
 }
 
-VARIANTS = {"retro": FAMILIES, "early": EARLY_FAMILIES}
+LIVE_FAMILIES: Families = {
+    "volume": {"live_lift": 1},
+    "approval": {"live_likes_per_reply": -1, "live_liked_share": -1},
+    "reach": {"live_follower_ratio_log10": 1, "target_followers": -1},
+    "audience": {"live_follow_amplifier": 1, "live_follow_target": -1},
+}
+
+VARIANTS = {"retro": FAMILIES, "early": EARLY_FAMILIES, "live": LIVE_FAMILIES}
 BUDGETS = (0.05, 0.10, 0.20)
 QUANTILES = 200
 
@@ -337,10 +365,147 @@ async def early_rows(
     return out
 
 
+def _lift(arrived: float | None, median_replies: float | None) -> float | None:
+    if arrived is None or median_replies is None:
+        return None
+    return arrived / max(median_replies, 1.0)
+
+
+async def _median_replies(fetcher: Fetcher, incident: Incident) -> float | None:
+    """The target's median replies before onset, as `features.assemble` reads it."""
+    uris = await post_uris_before(
+        fetcher, incident.target_did, incident.anchor, limit=BASELINE_POSTS
+    )
+    if not uris:
+        return None
+    counts = await post_counts(fetcher, uris)
+    target = (await post_counts(fetcher, [incident.target_post_uri])).get(
+        incident.target_post_uri
+    )
+    history = [
+        p
+        for p in counts.values()
+        if p.uri != incident.target_post_uri and p.author == incident.target_did
+    ]
+    base = baseline(history, is_reply=target.is_reply if target else None)
+    return base.median_replies if base else None
+
+
+async def live_row(surge: SurgeRecord, row: Row, fetcher: Fetcher) -> Row:
+    """`row` with the `live_*` signals: everything cut at the surge's trigger.
+
+    Only arrivals by the trigger are looked up, as a live alert would. Follows
+    count when dated before onset, likes when dated by the trigger.
+    """
+    incident = live_incident(surge)
+    trigger = surge.trigger
+    assert trigger is not None  # noqa: S101 - live_incident checked it
+    cut = timedelta(microseconds=trigger.at_us - surge.onset_us)
+    seen = sorted(
+        {r.author for r in incident.responses if r.at <= incident.anchor + cut}
+    )
+    target = None
+    if incident.target_post_uri:
+        target = (await post_counts(fetcher, [incident.target_post_uri])).get(
+            incident.target_post_uri
+        )
+    liked = None
+    if target is not None:
+        liked = (
+            await likers(fetcher, target.uri, max_pages=LIKER_PAGES)
+            if target.likes > 0
+            else Likers(complete=True, liked_at={})
+        )
+    to_target = await relationships(fetcher, incident.target_did, seen)
+    to_amplifier: dict[str, Relationship] = {}
+    amplifier_followers = None
+    if incident.amplifier_did:
+        to_amplifier = await relationships(fetcher, incident.amplifier_did, seen)
+        amplifier_followers = (
+            await profile_counts(fetcher, [incident.amplifier_did])
+        ).get(incident.amplifier_did)
+    found = early_signals(incident, cut, liked, (to_target, to_amplifier))
+    median = await _median_replies(fetcher, incident) if target else None
+    target_followers = row.get("target_followers")
+    ratio = None
+    if amplifier_followers is not None and isinstance(target_followers, int):
+        ratio = math.log10((amplifier_followers + 1) / (target_followers + 1))
+    end = to_incident(surge)
+    return row | {
+        "live_cut_s": cut.total_seconds(),
+        "live_arrivals": found["arrivals"],
+        "live_lift": _lift(found["arrivals"], median),
+        "live_likes_per_reply": found.get("likes_per_reply"),
+        "live_liked_share": found.get("liked_share"),
+        "live_follower_ratio_log10": ratio,
+        "live_follow_amplifier": found.get("follow_amplifier"),
+        "live_follow_target": found.get("follow_target"),
+        "live_same_target_post": incident.target_post_uri == end.target_post_uri,
+        "live_same_amplifier": incident.dunk_uris == end.dunk_uris,
+    }
+
+
+async def live_rows(
+    surges: list[SurgeRecord], rows: dict[str, Row], fetcher: Fetcher
+) -> list[Row]:
+    """Live rows for every surge that has a feature row, in surge order."""
+    out = []
+    for n, surge in enumerate(surges, 1):
+        row = rows.get(surge.surge_id)
+        if row is not None:
+            out.append(await live_row(surge, row, fetcher))
+        if n % 50 == 0:
+            print(f"[live] {n}/{len(surges)}", file=sys.stderr)
+    return out
+
+
 def _read_rows(paths: list[Path]) -> list[Row]:
     return [
         json.loads(line) for path in paths for line in path.read_text().splitlines()
     ]
+
+
+def _live_command(args: argparse.Namespace, rows: list[Row]) -> int:
+    by_id = {r["incident_id"]: r for r in rows}
+    wanted = [s for s in read_surges(args.surges) if s.surge_id in by_id]
+    print(f"{len(wanted)} of {len(by_id)} rows have a surge", file=sys.stderr)
+
+    async def run_live() -> list[Row]:
+        fetcher = Fetcher(Cache(args.cache), offline=not args.fetch)
+        try:
+            return await live_rows(wanted, by_id, fetcher)
+        finally:
+            await fetcher.close()
+            print(f"cache: {fetcher.stats}", file=sys.stderr)
+
+    found = asyncio.run(run_live())
+    args.out.write_text("".join(json.dumps(r) + "\n" for r in found))
+    print(f"wrote {len(found)} rows to {args.out}")
+    return 0
+
+
+def _early_command(args: argparse.Namespace, rows: list[Row]) -> int:
+    surges = sample(
+        list(read_surges(args.surges)),
+        size=args.sample_size,
+        seed=args.seed,
+        include_warmup=args.include_warmup,
+    )
+
+    async def run() -> list[Row]:
+        fetcher = Fetcher(Cache(args.cache), offline=True)
+        try:
+            return await early_rows(
+                surges, {r["incident_id"]: r for r in rows}, fetcher
+            )
+        finally:
+            await fetcher.close()
+            print(f"cache: {fetcher.stats}", file=sys.stderr)
+
+    found = asyncio.run(run())
+    args.out.write_text("".join(json.dumps(r) + "\n" for r in found))
+    print(f"wrote {len(found)} rows to {args.out}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -365,30 +530,18 @@ def main(argv: list[str] | None = None) -> int:
     ea.add_argument("--seed", type=int, default=20261017)
     ea.add_argument("--include-warmup", action="store_true")
     ea.add_argument("--out", type=Path, required=True)
+    lv = sub.add_parser("live", help="add trigger-time signals (amendment 2)")
+    lv.add_argument("--surges", type=Path, required=True, help="with trigger data")
+    lv.add_argument("--cache", type=Path, required=True)
+    lv.add_argument("--features", type=Path, nargs="+", required=True)
+    lv.add_argument("--fetch", action="store_true", help="fetch what is missing")
+    lv.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     rows = _read_rows(args.features)
+    if args.command == "live":
+        return _live_command(args, rows)
     if args.command == "early":
-        surges = sample(
-            list(read_surges(args.surges)),
-            size=args.sample_size,
-            seed=args.seed,
-            include_warmup=args.include_warmup,
-        )
-
-        async def run() -> list[Row]:
-            fetcher = Fetcher(Cache(args.cache), offline=True)
-            try:
-                return await early_rows(
-                    surges, {r["incident_id"]: r for r in rows}, fetcher
-                )
-            finally:
-                await fetcher.close()
-                print(f"cache: {fetcher.stats}", file=sys.stderr)
-
-        found = asyncio.run(run())
-        args.out.write_text("".join(json.dumps(r) + "\n" for r in found))
-        print(f"wrote {len(found)} rows to {args.out}")
-        return 0
+        return _early_command(args, rows)
     if args.command == "freeze":
         reference = freeze(rows, args.variant)
         args.out.write_text(reference.to_json() + "\n")
