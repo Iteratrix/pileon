@@ -569,7 +569,18 @@ threads (106 blind agents; holistic pile-on kappa 0.97, label weighted kappa
   The early grade is not a live estimate (amendment 2): a surge triggers a
   median 39 min after its backdated onset, and the early quoter is the
   whole-surge one, whose quote came after onset + 15 min in 5 of the 8
-  positives. The live variant (everything cut at the trigger) replaces it.
+  positives.
+- **Live variant** (amendment 2; everything cut at the trigger, with the
+  trigger's target post and quoter; reference frozen on interim): AUC 0.899
+  (95% 0.78-0.98) on the same 159 surges, so the early result survives the
+  lookahead fix. At the live 10% cutoff it alerts on 16% of these surges,
+  precision 0.12, recall 0.75 (early: 0.12 / 0.62). 59% of the contempt in
+  true live alerts arrives after the trigger (median per alert 76%); the
+  quoter known at trigger is the whole-surge one in only 21-27% of
+  surges (4 of the 8 pile-ons). Trawl AUC 0.62 (0.34-1.00), uninformative as before. The Rust
+  port (`pileon-alert`) matches the lab on all 650 rescored surges, signal
+  for signal and score for score, and runs in shadow mode from 2026-10-18
+  (`pileon-alert.service`, `data/alerts/`).
 - **The trawl** (all 62,792 eligible held-out surges, tiered by a cheap
   structural score of reach and approval alone): in-context pile-on share is
   85% (79 of 93) in the top 0.5%, 56% in the next 1.5%, 10% in the next 8%,

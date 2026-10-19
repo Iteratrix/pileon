@@ -370,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def alerts(args: argparse.Namespace) -> int:
-    """Write the early alerts' groups for nuke and print their lead time."""
+    """Write the alerts' groups for nuke and print their lead time."""
     entries: dict[str, Row] = json.loads(args.gold.read_text())
     reference = Reference.from_json(args.reference.read_text())
     groups = early_alerts(entries, _rows(args.features), reference)
@@ -407,7 +407,7 @@ def alerts(args: argparse.Namespace) -> int:
     after = sum(a for a, _ in shares)
     total = sum(t for _, t in shares)
     print(
-        f"early alerts: {len(groups)} ({len(true_alerts)} true); pooled contempt in "
+        f"alerts: {len(groups)} ({len(true_alerts)} true); pooled contempt in "
         f"true alerts {total:.1f}, after the alert ({args.at}) {after:.1f}"
         + (f" ({after / total:.0%})" if total else "")
     )
