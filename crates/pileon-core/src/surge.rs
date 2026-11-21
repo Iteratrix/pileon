@@ -512,7 +512,7 @@ impl SurgeDetector {
     /// only known at close are zero). Empty unless [`Self::report_openings`]
     /// was called.
     pub fn take_opened(&mut self) -> Vec<Surge> {
-        self.opened.as_mut().map(std::mem::take).unwrap_or_default()
+        self.opened.as_mut().map_or_default(std::mem::take)
     }
 
     /// Returns how many targets are tracked and how many surges are open.
