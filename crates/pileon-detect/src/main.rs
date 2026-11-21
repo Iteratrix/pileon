@@ -149,8 +149,7 @@ fn main() -> anyhow::Result<()> {
             last_report = Instant::now();
             let (targets, open) = detector.load();
             let when = jiff::Timestamp::from_microsecond(last_time_us)
-                .map(|t| t.strftime("%Y-%m-%d %H:%M").to_string())
-                .unwrap_or_default();
+                .map_or_default(|t| t.strftime("%Y-%m-%d %H:%M").to_string());
             info!(
                 "{rows} rows ({:.0}/s), at {when}; {targets} targets, {open} open, {} surges",
                 rows.az::<f64>() / started.elapsed().as_secs_f64(),

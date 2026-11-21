@@ -104,8 +104,7 @@ async fn session(
             let body = response
                 .body()
                 .as_deref()
-                .map(String::from_utf8_lossy)
-                .unwrap_or_default();
+                .map_or_default(String::from_utf8_lossy);
             warn!("cursor {cursor:?} rejected (outside lookback?): {body}");
             return Err(SessionError::CursorTooOld);
         }

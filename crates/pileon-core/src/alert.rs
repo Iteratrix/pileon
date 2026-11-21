@@ -680,8 +680,7 @@ mod tests {
 
     fn iso(minutes: i64) -> String {
         jiff::Timestamp::from_microsecond(ONSET + minutes * MINUTE)
-            .map(|t| t.to_string())
-            .unwrap_or_default()
+            .map_or_default(|t| t.to_string())
     }
 
     impl Fetch for FakeNetwork {
