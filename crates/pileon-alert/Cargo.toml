@@ -16,7 +16,7 @@ log = "0.4.34"
 pileon-core = { version = "0.1.0", path = "../pileon-core" }
 pileon-detect = { version = "0.1.0", path = "../pileon-detect" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
