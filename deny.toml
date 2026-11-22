@@ -1,0 +1,10 @@
+# cargo-deny configuration. Only the advisories check is configured:
+# `cargo deny check advisories` (RustSec advisories and yanked crates).
+
+[advisories]
+yanked = "deny"
+# Report unmaintained and unsound advisories for every crate in the
+# lockfile, not only direct dependencies (cargo-deny's default scope).
+unmaintained = "all"
+unsound = "all"
+ignore = []
