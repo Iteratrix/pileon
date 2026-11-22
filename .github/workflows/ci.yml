@@ -65,3 +65,14 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy src
+
+  advisories:
+    # RustSec advisories for every crate in Cargo.lock (see deny.toml). Not a
+    # required check: a new advisory turns it red without blocking other PRs.
+    name: Advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
