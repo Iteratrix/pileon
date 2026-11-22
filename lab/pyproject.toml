@@ -55,5 +55,5 @@ asyncio_mode = "auto"
 addopts = "--strict-markers --strict-config --cov --cov-report=term-missing"
 
 [build-system]
-requires = ["uv_build>=0.9.28,<0.10.0"]
+requires = ["uv_build>=0.9.28,<0.14.0"]
 build-backend = "uv_build"
